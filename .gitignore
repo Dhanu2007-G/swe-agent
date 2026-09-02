@@ -1,0 +1,91 @@
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+.installed.cfg
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.whl
+pip-wheel-metadata/
+share/python-wheels/
+MANIFEST
+
+# ── Virtual environments ─────────────────────────────────────────────────────
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ── Testing ──────────────────────────────────────────────────────────────────
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+nosetests.xml
+test-results/
+eval-results.json
+
+# ── Type checking ─────────────────────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ── Secrets — NEVER commit these ─────────────────────────────────────────────
+.env
+.env.*
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# ── Alembic ──────────────────────────────────────────────────────────────────
+# Keep migrations in version control — do NOT ignore
+
+# ── Temp files ───────────────────────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+*.bak
+*.log
+
+# ── LangSmith / LangChain cache ──────────────────────────────────────────────
+.langchain/
+
+# ── Node (if using any JS tooling) ───────────────────────────────────────────
+node_modules/

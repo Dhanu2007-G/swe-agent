@@ -1,0 +1,171 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Shared defaults — applied to all service definitions via YAML anchors
+# ──────────────────────────────────────────────────────────────────────────────
+x-base: &base
+  restart: unless-stopped
+  env_file: .env
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+      max-file: "5"
+
+x-app-base: &app-base
+  <<: *base
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: production
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+
+  # ── FastAPI — Webhook + REST API ───────────────────────────────────────────
+  api:
+    <<: *app-base
+    container_name: swe-agent-api
+    command: >
+      uvicorn src.api.main:app
+        --host 0.0.0.0
+        --port 8000
+        --workers 2
+        --loop uvloop
+        --http httptools
+        --log-config /dev/null
+        --access-log
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── RQ Workers — Agent execution (scale with docker compose up --scale worker=N) ──
+  worker:
+    <<: *app-base
+    command: python -m src.worker.entrypoint
+    deploy:
+      replicas: 3
+    volumes:
+      # Workers need Docker socket to spin up sandbox containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Worker needs elevated access for Docker-in-Docker
+    user: root  # TODO: use docker group membership in prod
+    environment:
+      - LOG_FORMAT=json
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "from src.worker.queue import get_sync_redis; get_sync_redis().ping()"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # ── RQ Dashboard (dev/staging only) ──────────────────────────────────────
+  rq-dashboard:
+    image: eoranged/rq-dashboard:latest
+    <<: *base
+    ports:
+      - "9181:9181"
+    environment:
+      - RQ_DASHBOARD_REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    profiles:
+      - dev
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    <<: *base
+    container_name: swe-agent-redis
+    command: >
+      redis-server
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+        --save ""
+        --appendonly no
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    <<: *base
+    container_name: swe-agent-postgres
+    environment:
+      POSTGRES_DB: swe_agent
+      POSTGRES_USER: ${POSTGRES_USER:-swe_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-swe_agent} -d swe_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    <<: *base
+    container_name: swe-agent-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    profiles:
+      - observability
+
+  # ── Grafana ───────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.3.0
+    <<: *base
+    container_name: swe-agent-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infra/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    profiles:
+      - observability
+
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  default:
+    name: swe-agent-network
+    driver: bridge

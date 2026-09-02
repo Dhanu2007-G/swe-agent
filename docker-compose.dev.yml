@@ -1,0 +1,101 @@
+# docker-compose.dev.yml — Development overrides.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Or add this alias to your shell:
+#   alias dc-dev="docker compose -f docker-compose.yml -f docker-compose.dev.yml"
+#   dc-dev up
+#
+# This file ONLY contains overrides — the base docker-compose.yml still applies.
+
+services:
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    # Override command to add --reload for hot reloading
+    command: >
+      uvicorn src.api.main:app
+        --host 0.0.0.0
+        --port 8000
+        --reload
+        --reload-dir /app/src
+        --log-level debug
+        --log-config /dev/null
+    volumes:
+      # Mount source for hot reload
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+    environment:
+      APP_ENV: development
+      LOG_FORMAT: console
+      LOG_LEVEL: DEBUG
+      DATABASE_ECHO: "true"
+      LANGCHAIN_TRACING_V2: "true"
+    ports:
+      - "8000:8000"
+      - "5678:5678"  # debugpy attach port
+
+  worker:
+    command: python -m src.worker.entrypoint
+    volumes:
+      - ./src:/app/src:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      APP_ENV: development
+      LOG_FORMAT: console
+      LOG_LEVEL: DEBUG
+    # Remove resource limits in dev for easier debugging
+    deploy:
+      replicas: 1
+      resources: {}
+
+  # Watchdog runs as a separate dev process
+  watchdog:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    command: python -m src.worker.watchdog
+    volumes:
+      - ./src:/app/src:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file: .env
+    environment:
+      APP_ENV: development
+      LOG_FORMAT: console
+      LOG_LEVEL: DEBUG
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Dev-only: MailHog for email testing (future feature) ──────────────────
+  # mailhog:
+  #   image: mailhog/mailhog:latest
+  #   ports:
+  #     - "1025:1025"  # SMTP
+  #     - "8025:8025"  # Web UI
+
+  redis:
+    # Expose Redis port for direct inspection with redis-cli
+    ports:
+      - "6379:6379"
+    # Disable persistence in dev — faster restarts
+    command: redis-server --save "" --appendonly no --loglevel verbose
+
+  postgres:
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: swe_agent_dev
+      POSTGRES_USER: dev_user
+      POSTGRES_PASSWORD: dev_pass
+    # Log all queries in dev
+    command: >
+      postgres
+        -c log_statement=all
+        -c log_duration=on
+        -c log_min_duration_statement=100

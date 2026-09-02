@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    service: 'swe-agent'
+    env: 'production'
+
+rule_files:
+  - "rules/*.yml"
+
+scrape_configs:
+  - job_name: 'swe-agent-api'
+    static_configs:
+      - targets: ['api:9090']
+    metrics_path: /metrics
+
+  - job_name: 'swe-agent-worker'
+    static_configs:
+      - targets: ['worker:9090']
+    metrics_path: /metrics
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []

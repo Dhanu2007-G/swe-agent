@@ -1,0 +1,88 @@
+groups:
+  - name: swe_agent_alerts
+    interval: 60s
+    rules:
+
+      # ── Availability ───────────────────────────────────────────────────────
+
+      - alert: SWEAgentHighFailureRate
+        expr: |
+          (
+            sum(rate(swe_agent_runs_total{status="failed"}[30m]))
+            /
+            sum(rate(swe_agent_runs_total[30m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SWE Agent failure rate > 50%"
+          description: "Over 50% of agent runs are failing. Check LLM API, GitHub token, and Docker sandbox."
+
+      - alert: SWEAgentSolveRateDrop
+        expr: |
+          (
+            sum(rate(swe_agent_runs_total{status="succeeded"}[1h]))
+            /
+            sum(rate(swe_agent_runs_total[1h]))
+          ) < 0.3
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SWE Agent solve rate dropped below 30%"
+          description: "Solve rate is {{ $value | humanizePercentage }} over the last hour."
+
+      # ── Latency ────────────────────────────────────────────────────────────
+
+      - alert: SWEAgentHighP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(swe_agent_run_duration_seconds_bucket[5m])) by (le)
+          ) > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SWE Agent p99 run duration > 30 minutes"
+          description: "p99 run duration is {{ $value | humanizeDuration }}. Check for LLM timeouts or stuck Docker containers."
+
+      # ── Queue depth ────────────────────────────────────────────────────────
+
+      - alert: SWEAgentNoActiveWorkers
+        expr: swe_agent_active_runs == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No active SWE Agent workers"
+          description: "No agent runs have been active for 5 minutes. Workers may be down."
+
+      # ── API ────────────────────────────────────────────────────────────────
+
+      - alert: SWEAgentAPIHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SWE Agent API error rate > 5%"
+          description: "HTTP 5xx error rate is {{ $value | humanizePercentage }}."
+
+      # ── Token cost ─────────────────────────────────────────────────────────
+
+      - alert: SWEAgentHighTokenUsage
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(swe_agent_tokens_used_bucket[1h])) by (le)
+          ) > 200000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SWE Agent p95 token usage > 200k per run"
+          description: "Runs are consuming {{ $value | humanize }} tokens at p95. Review prompt sizes and context loading."
