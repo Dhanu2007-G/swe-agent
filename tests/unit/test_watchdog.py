@@ -1,6 +1,7 @@
 """
 tests/unit/test_watchdog.py — Tests for stuck-run detection and reaping logic.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -128,10 +129,7 @@ class TestReapStuckRuns:
     @pytest.mark.asyncio
     async def test_multiple_stuck_runs_all_reaped(self) -> None:
         """Multiple stuck runs are all reaped in one cycle."""
-        stuck_runs = [
-            _make_run(run_id=f"run-{i}", started_minutes_ago=90 + i)
-            for i in range(3)
-        ]
+        stuck_runs = [_make_run(run_id=f"run-{i}", started_minutes_ago=90 + i) for i in range(3)]
         results = {"stuck_runs_reaped": 0, "stale_containers_removed": 0, "errors": 0}
 
         with (
@@ -222,9 +220,7 @@ class TestGitHubComment:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client.comment_on_issue = AsyncMock(
-                side_effect=Exception("GitHub API 503")
-            )
+            mock_client.comment_on_issue = AsyncMock(side_effect=Exception("GitHub API 503"))
             mock_client_cls.return_value = mock_client
 
             # Must not raise

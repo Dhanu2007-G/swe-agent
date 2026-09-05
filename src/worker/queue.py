@@ -2,6 +2,7 @@
 src/worker/queue.py — Redis queue for async job dispatch.
 Uses RQ (Redis Queue) for reliable job processing with retry.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -104,13 +105,16 @@ async def enqueue_issue_job(
 
     # Store job metadata in Redis for async polling
     job_key = f"job:{job_id}"
-    await redis.hset(job_key, mapping={
-        "job_id": job_id,
-        "repo": repo_full_name,
-        "issue_number": str(issue_number),
-        "delivery_id": delivery_id,
-        "status": "queued",
-    })
+    await redis.hset(
+        job_key,
+        mapping={
+            "job_id": job_id,
+            "repo": repo_full_name,
+            "issue_number": str(issue_number),
+            "delivery_id": delivery_id,
+            "status": "queued",
+        },
+    )
     await redis.expire(job_key, settings.redis_result_ttl)
 
     # Enqueue via RQ (blocking call — run in executor)
@@ -119,7 +123,11 @@ async def enqueue_issue_job(
         await loop.run_in_executor(
             None,
             _enqueue_sync,
-            job_id, repo_full_name, issue_number, high_priority, settings.redis_job_timeout,
+            job_id,
+            repo_full_name,
+            issue_number,
+            high_priority,
+            settings.redis_job_timeout,
         )
     except Exception as e:
         await repo.update_run(run_id=job_id, status="failed", failure_reason=str(e))
@@ -127,8 +135,13 @@ async def enqueue_issue_job(
         await redis.delete(lock_key)
         raise
 
-    log.info("queue.job_enqueued", job_id=job_id, repo=repo_full_name,
-             issue=issue_number, priority="high" if high_priority else "normal")
+    log.info(
+        "queue.job_enqueued",
+        job_id=job_id,
+        repo=repo_full_name,
+        issue=issue_number,
+        priority="high" if high_priority else "normal",
+    )
     return job_id
 
 
@@ -141,7 +154,6 @@ def _enqueue_sync(
 ) -> None:
     """Synchronous RQ enqueue — called from executor."""
     import rq
-    from rq import Queue
 
     redis_conn = get_sync_redis()
     queue_name = HIGH_PRIORITY_QUEUE if high_priority else QUEUE_NAME
@@ -167,4 +179,4 @@ async def get_job_status(job_id: str) -> dict[str, Any] | None:
     """Poll job status from Redis."""
     redis = await get_redis_connection()
     data = await redis.hgetall(f"job:{job_id}")
-    return dict(data) if data else None
+    return dict(data) if data else None  # type: ignore[arg-type]

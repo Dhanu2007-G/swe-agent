@@ -7,10 +7,12 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+
 class TestWebhookCoverage:
     @pytest.fixture
     def client(self) -> TestClient:
         from src.api.main import create_app
+
         settings = SimpleNamespace(
             is_production=False,
             allowed_hosts=["localhost"],
@@ -26,7 +28,12 @@ class TestWebhookCoverage:
         response = client.post(
             "/webhooks/github",
             content=b"not a json",
-            headers={"X-GitHub-Event": "issues", "X-GitHub-Delivery": "foo", "X-Hub-Signature-256": "sha256=123", "Content-Type": "application/json"}
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
         )
         assert response.status_code == 400
 
@@ -34,7 +41,7 @@ class TestWebhookCoverage:
         response = client.post(
             "/webhooks/github",
             json={"action": "opened"},
-            headers={"X-GitHub-Event": "issues", "X-GitHub-Delivery": "foo"}
+            headers={"X-GitHub-Event": "issues", "X-GitHub-Delivery": "foo"},
         )
         assert response.status_code == 401
 
@@ -43,7 +50,12 @@ class TestWebhookCoverage:
         response = client.post(
             "/webhooks/github",
             json={"action": "opened"},
-            headers={"X-GitHub-Event": "issues", "X-GitHub-Delivery": "foo", "X-Hub-Signature-256": "sha256=123", "Content-Type": "application/json"}
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
         )
         assert response.status_code == 401
 
@@ -53,7 +65,12 @@ class TestWebhookCoverage:
         response = client.post(
             "/webhooks/github",
             json={"action": "opened", "issue": {}, "repository": {}},
-            headers={"X-GitHub-Event": "issues", "X-GitHub-Delivery": "foo", "X-Hub-Signature-256": "sha256=123", "Content-Type": "application/json"}
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
         )
         assert response.status_code == 400
 
@@ -66,8 +83,17 @@ class TestWebhookCoverage:
         mock_get_redis.return_value = mock_redis
         response = client.post(
             "/webhooks/github",
-            json={"action": "opened", "issue": {"number": 1, "labels": [{"name": "agent-fix"}]}, "repository": {"full_name": "owner/repo"}},
-            headers={"X-GitHub-Event": "issues", "X-GitHub-Delivery": "foo", "X-Hub-Signature-256": "sha256=123", "Content-Type": "application/json"}
+            json={
+                "action": "opened",
+                "issue": {"number": 1, "labels": [{"name": "agent-fix"}]},
+                "repository": {"full_name": "owner/repo"},
+            },
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
         )
         assert response.status_code == 200
         assert response.json()["reason"] == "duplicate delivery"
@@ -86,8 +112,17 @@ class TestWebhookCoverage:
 
         response = client.post(
             "/webhooks/github",
-            json={"action": "opened", "issue": {"number": 1, "labels": [{"name": "agent-fix"}]}, "repository": {"full_name": "owner/repo"}},
-            headers={"X-GitHub-Event": "issues", "X-GitHub-Delivery": "foo", "X-Hub-Signature-256": "sha256=123", "Content-Type": "application/json"}
+            json={
+                "action": "opened",
+                "issue": {"number": 1, "labels": [{"name": "agent-fix"}]},
+                "repository": {"full_name": "owner/repo"},
+            },
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
         )
         assert response.status_code == 200
         assert response.json()["reason"] == "run already active"
@@ -99,7 +134,12 @@ class TestWebhookCoverage:
         response = client.post(
             "/webhooks/github",
             json={"action": "opened", "repository": {"full_name": "owner/repo"}},
-            headers={"X-GitHub-Event": "issues", "X-GitHub-Delivery": "foo", "X-Hub-Signature-256": "sha256=123", "Content-Type": "application/json"}
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
         )
         assert response.status_code == 429
 
@@ -112,15 +152,24 @@ class TestWebhookCoverage:
         mock_redis = AsyncMock()
         mock_redis.set.side_effect = Exception("Redis dedup error")
         mock_get_redis.return_value = mock_redis
-        
+
         run = SimpleNamespace(run_id="run-123")
         mock_repo = mock_repo_cls.return_value
         mock_repo.get_active_run = AsyncMock(return_value=run)
 
         response = client.post(
             "/webhooks/github",
-            json={"action": "opened", "issue": {"number": 1, "labels": [{"name": "agent-fix"}]}, "repository": {"full_name": "owner/repo"}},
-            headers={"X-GitHub-Event": "issues", "X-GitHub-Delivery": "foo", "X-Hub-Signature-256": "sha256=123", "Content-Type": "application/json"}
+            json={
+                "action": "opened",
+                "issue": {"number": 1, "labels": [{"name": "agent-fix"}]},
+                "repository": {"full_name": "owner/repo"},
+            },
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
         )
         assert response.status_code == 200
         assert response.json()["reason"] == "run already active"

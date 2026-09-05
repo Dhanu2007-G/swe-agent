@@ -3,6 +3,7 @@ tests/unit/test_nodes.py — Unit tests for every agent node.
 All external dependencies (LLM, GitHub, Docker) are mocked.
 Each node tested: happy path, timeout, malformed output, edge cases.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,14 +30,14 @@ from src.agent.state import (
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def sample_issue() -> GithubIssue:
     return GithubIssue(
         issue_number=42,
         repo_full_name="owner/repo",
         title="Fix: NullPointerException in UserService.getUser()",
-        body="When `user_id` is None, `get_user()` raises an unhandled exception. "
-             "Should return 404 instead.",
+        body="When `user_id` is None, `get_user()` raises an unhandled exception. Should return 404 instead.",
         labels=["bug", "agent-fix"],
         comments=["Confirmed — happens in prod"],
         linked_prs=[],
@@ -139,11 +140,10 @@ def base_state(sample_issue: GithubIssue) -> AgentState:
 
 # ── test_read_issue_node ──────────────────────────────────────────────────────
 
+
 class TestReadIssueNode:
     @pytest.mark.asyncio
-    async def test_happy_path_returns_running_status(
-        self, sample_issue: GithubIssue
-    ) -> None:
+    async def test_happy_path_returns_running_status(self, sample_issue: GithubIssue) -> None:
         from src.agent.nodes import read_issue_node
 
         mock_response = MagicMock()
@@ -160,16 +160,16 @@ class TestReadIssueNode:
         assert result["attempt_history"] == []
 
     @pytest.mark.asyncio
-    async def test_ambiguous_issue_returns_failed(
-        self, sample_issue: GithubIssue
-    ) -> None:
+    async def test_ambiguous_issue_returns_failed(self, sample_issue: GithubIssue) -> None:
         from src.agent.nodes import read_issue_node
 
         mock_response = MagicMock()
-        mock_response.content = json.dumps({
-            "can_proceed": False,
-            "blocking_questions": ["Which endpoint?", "What version?"],
-        })
+        mock_response.content = json.dumps(
+            {
+                "can_proceed": False,
+                "blocking_questions": ["Which endpoint?", "What version?"],
+            }
+        )
 
         with patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
@@ -180,9 +180,7 @@ class TestReadIssueNode:
         assert "failure_reason" in result
 
     @pytest.mark.asyncio
-    async def test_llm_failure_fails_open(
-        self, sample_issue: GithubIssue
-    ) -> None:
+    async def test_llm_failure_fails_open(self, sample_issue: GithubIssue) -> None:
         """If clarifier LLM fails, we still proceed (fail-open)."""
         from src.agent.nodes import read_issue_node
 
@@ -197,6 +195,7 @@ class TestReadIssueNode:
 
 # ── test_plan_node ────────────────────────────────────────────────────────────
 
+
 class TestPlanNode:
     @pytest.mark.asyncio
     async def test_returns_structured_plan(
@@ -207,12 +206,17 @@ class TestPlanNode:
         from src.agent.nodes import plan_node
 
         with (
-            patch("src.tools.filesystem.list_repo_tree", new_callable=AsyncMock,
-                  return_value="src/\n  services/\n    user_service.py"),
-            patch("src.tools.filesystem.list_test_files", new_callable=AsyncMock,
-                  return_value=["tests/test_user_service.py"]),
-            patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock,
-                  return_value=sample_plan),
+            patch(
+                "src.tools.filesystem.list_repo_tree",
+                new_callable=AsyncMock,
+                return_value="src/\n  services/\n    user_service.py",
+            ),
+            patch(
+                "src.tools.filesystem.list_test_files",
+                new_callable=AsyncMock,
+                return_value=["tests/test_user_service.py"],
+            ),
+            patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock, return_value=sample_plan),
         ):
             result = await plan_node(base_state)
 
@@ -222,25 +226,25 @@ class TestPlanNode:
         assert result["current_task_index"] == 0
 
     @pytest.mark.asyncio
-    async def test_propagates_llm_exception(
-        self, base_state: AgentState
-    ) -> None:
+    async def test_propagates_llm_exception(self, base_state: AgentState) -> None:
         from src.agent.nodes import plan_node
         from anthropic import APIConnectionError
 
         with (
-            patch("src.tools.filesystem.list_repo_tree", new_callable=AsyncMock,
-                  return_value=""),
-            patch("src.tools.filesystem.list_test_files", new_callable=AsyncMock,
-                  return_value=[]),
-            patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock,
-                  side_effect=APIConnectionError(request=MagicMock())),
+            patch("src.tools.filesystem.list_repo_tree", new_callable=AsyncMock, return_value=""),
+            patch("src.tools.filesystem.list_test_files", new_callable=AsyncMock, return_value=[]),
+            patch(
+                "src.agent.nodes._invoke_with_timeout",
+                new_callable=AsyncMock,
+                side_effect=APIConnectionError(request=MagicMock()),
+            ),
         ):
             with pytest.raises(Exception):
                 await plan_node(base_state)
 
 
 # ── test_code_node ────────────────────────────────────────────────────────────
+
 
 class TestCodeNode:
     @pytest.mark.asyncio
@@ -255,18 +259,21 @@ class TestCodeNode:
         state = {**base_state, "plan": sample_plan, "current_task_index": 0}
 
         with (
-            patch("src.tools.search.find_relevant_files", new_callable=AsyncMock,
-                  return_value=[]),
-            patch("src.tools.filesystem.load_file_contexts", new_callable=AsyncMock,
-                  return_value=[{
-                      "path": "src/services/user_service.py",
-                      "content": "def get_user(user_id):\n    ...",
-                      "language": "python",
-                      "size_bytes": 200,
-                      "token_count": 50,
-                  }]),
-            patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock,
-                  return_value=sample_patch),
+            patch("src.tools.search.find_relevant_files", new_callable=AsyncMock, return_value=[]),
+            patch(
+                "src.tools.filesystem.load_file_contexts",
+                new_callable=AsyncMock,
+                return_value=[
+                    {
+                        "path": "src/services/user_service.py",
+                        "content": "def get_user(user_id):\n    ...",
+                        "language": "python",
+                        "size_bytes": 200,
+                        "token_count": 50,
+                    }
+                ],
+            ),
+            patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock, return_value=sample_patch),
         ):
             result = await code_node(state)
 
@@ -277,6 +284,7 @@ class TestCodeNode:
 
 
 # ── test_correct_node ─────────────────────────────────────────────────────────
+
 
 class TestCorrectNode:
     @pytest.mark.asyncio
@@ -299,15 +307,11 @@ class TestCorrectNode:
             "attempt_history": [],
         }
 
-        corrected_patch = sample_patch.model_copy(
-            update={"explanation": "Corrected version"}
-        )
+        corrected_patch = sample_patch.model_copy(update={"explanation": "Corrected version"})
 
         with (
-            patch("src.agent.nodes._classify_error", new_callable=AsyncMock,
-                  return_value=ErrorCategory.LOGIC_ERROR),
-            patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock,
-                  return_value=corrected_patch),
+            patch("src.agent.nodes._classify_error", new_callable=AsyncMock, return_value=ErrorCategory.LOGIC_ERROR),
+            patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock, return_value=corrected_patch),
         ):
             result = await correct_node(state)
 
@@ -343,10 +347,8 @@ class TestCorrectNode:
         }
 
         with (
-            patch("src.agent.nodes._classify_error", new_callable=AsyncMock,
-                  return_value=ErrorCategory.LOGIC_ERROR),
-            patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock,
-                  return_value=sample_patch),
+            patch("src.agent.nodes._classify_error", new_callable=AsyncMock, return_value=ErrorCategory.LOGIC_ERROR),
+            patch("src.agent.nodes._invoke_with_timeout", new_callable=AsyncMock, return_value=sample_patch),
         ):
             result = await correct_node(state)
 
@@ -356,6 +358,7 @@ class TestCorrectNode:
 
 # ── test_routing ──────────────────────────────────────────────────────────────
 
+
 class TestRouting:
     def test_route_after_test_passes(
         self,
@@ -363,6 +366,7 @@ class TestRouting:
         passing_test_result: TestResult,
     ) -> None:
         from src.agent.graph import route_after_test
+
         state = {**base_state, "test_result": passing_test_result, "retry_count": 0}
         assert route_after_test(state) == "open_pr"
 
@@ -372,6 +376,7 @@ class TestRouting:
         failing_test_result: TestResult,
     ) -> None:
         from src.agent.graph import route_after_test
+
         with patch("src.agent.graph.get_settings") as mock_settings:
             mock_settings.return_value.agent_max_retries = 3
             state = {**base_state, "test_result": failing_test_result, "retry_count": 1}
@@ -383,6 +388,7 @@ class TestRouting:
         failing_test_result: TestResult,
     ) -> None:
         from src.agent.graph import route_after_test
+
         with patch("src.agent.graph.get_settings") as mock_settings:
             mock_settings.return_value.agent_max_retries = 3
             state = {**base_state, "test_result": failing_test_result, "retry_count": 3}
@@ -391,11 +397,13 @@ class TestRouting:
     def test_route_after_read_aborts_on_failure(self) -> None:
         from src.agent.graph import route_after_read
         from langgraph.graph import END
+
         state: AgentState = {"status": RunStatus.FAILED}
         assert route_after_read(state) == END
 
     def test_route_after_read_proceeds_on_running(self) -> None:
         from src.agent.graph import route_after_read
+
         state: AgentState = {"status": RunStatus.RUNNING}
         assert route_after_read(state) == "plan"
 
@@ -544,18 +552,27 @@ class TestNodeExecutionDeepCoverage:
 
         # Format attempts
         assert _format_previous_attempts([]) == "No previous attempts."
-        att = [{
-            "attempt_number": 1,
-            "error_category": "syntax_error",
-            "patch": {"patches": [{"file_path": "app.py", "unified_diff": "diff..."}]},
-        }]
+        att = [
+            {
+                "attempt_number": 1,
+                "error_category": "syntax_error",
+                "patch": {"patches": [{"file_path": "app.py", "unified_diff": "diff..."}]},
+            }
+        ]
         assert "app.py" in _format_previous_attempts(att)
 
         # Generate PR description fallback
         issue = GithubIssue(
-            issue_number=1, repo_full_name="o/r", title="Bug", body="",
-            labels=[], comments=[], linked_prs=[], assignees=[],
-            created_at=datetime.now(timezone.utc), html_url="",
+            issue_number=1,
+            repo_full_name="o/r",
+            title="Bug",
+            body="",
+            labels=[],
+            comments=[],
+            linked_prs=[],
+            assignees=[],
+            created_at=datetime.now(timezone.utc),
+            html_url="",
         )
         patch_obj = CodePatch(patches=[], explanation="none", test_command="pytest", new_dependencies=[])
         with patch("src.agent.nodes._invoke_with_timeout", side_effect=RuntimeError("fail")):

@@ -2,6 +2,7 @@
 src/agent/state.py — Typed state contracts for every node in the graph.
 Using Pydantic models for validation + TypedDict for LangGraph compatibility.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -13,6 +14,7 @@ from typing_extensions import TypedDict
 
 
 # ── Enumerations ──────────────────────────────────────────────────────────────
+
 
 class RunStatus(StrEnum):
     PENDING = "pending"
@@ -42,8 +44,10 @@ class TaskPriority(StrEnum):
 
 # ── Domain Models ─────────────────────────────────────────────────────────────
 
+
 class GithubIssue(BaseModel):
     """Parsed GitHub issue with all context the agent needs."""
+
     issue_number: int
     repo_full_name: str  # "owner/repo"
     title: str
@@ -82,6 +86,7 @@ class GithubIssue(BaseModel):
 
 class Task(BaseModel):
     """Atomic unit of work from the planner."""
+
     id: str
     description: str
     files_to_modify: list[str] = Field(default_factory=list)
@@ -94,6 +99,7 @@ class Task(BaseModel):
 
 class TaskPlan(BaseModel):
     """Structured output from the planner node."""
+
     summary: str
     tasks: list[Task]
     affected_test_files: list[str] = Field(default_factory=list)
@@ -104,6 +110,7 @@ class TaskPlan(BaseModel):
 
 class FileContext(BaseModel):
     """A file's content loaded for the coder node."""
+
     path: str
     content: str
     language: str
@@ -117,14 +124,17 @@ class FileContext(BaseModel):
         # Truncate to roughly max_tokens worth of content
         ratio = max_tokens / self.token_count
         cutoff = int(len(self.content) * ratio)
-        return self.model_copy(update={
-            "content": self.content[:cutoff] + "\n... [TRUNCATED]",
-            "token_count": max_tokens,
-        })
+        return self.model_copy(
+            update={
+                "content": self.content[:cutoff] + "\n... [TRUNCATED]",
+                "token_count": max_tokens,
+            }
+        )
 
 
 class FilePatch(BaseModel):
     """A single file change as a unified diff with optional full file replacement content."""
+
     file_path: str
     unified_diff: str = ""
     change_type: str = "modify"  # "modify" | "create" | "delete"
@@ -134,6 +144,7 @@ class FilePatch(BaseModel):
 
 class CodePatch(BaseModel):
     """Structured output from the coder node."""
+
     patches: list[FilePatch]
     explanation: str
     test_command: str = "pytest"
@@ -142,6 +153,7 @@ class CodePatch(BaseModel):
 
 class TestFailure(BaseModel):
     """A single test failure with full context."""
+
     __test__ = False
     test_id: str
     test_name: str
@@ -152,6 +164,7 @@ class TestFailure(BaseModel):
 
 class TestResult(BaseModel):
     """Structured output from running the test suite."""
+
     __test__ = False
     passed: bool
     total: int = 0
@@ -173,7 +186,7 @@ class TestResult(BaseModel):
             lines.append(f"### {f.test_name} [{f.error_category}]")
             lines.append(f"Error: {f.error_message}")
             if f.traceback:
-                lines.append(f"Traceback (last 5 lines):")
+                lines.append("Traceback (last 5 lines):")
                 tb_lines = f.traceback.strip().split("\n")
                 lines.extend(tb_lines[-5:])
             lines.append("")
@@ -182,6 +195,7 @@ class TestResult(BaseModel):
 
 class PullRequest(BaseModel):
     """Result of opening a PR."""
+
     pr_number: int
     pr_url: str
     branch_name: str
@@ -192,6 +206,7 @@ class PullRequest(BaseModel):
 
 class AttemptRecord(BaseModel):
     """Record of one patch attempt for the correction loop."""
+
     attempt_number: int
     patch: CodePatch
     test_result: TestResult
@@ -201,11 +216,13 @@ class AttemptRecord(BaseModel):
 
 # ── LangGraph State ───────────────────────────────────────────────────────────
 
+
 class AgentState(TypedDict, total=False):
     """
     The single source of truth flowing through all graph nodes.
     Every field is optional (total=False) so nodes return partial updates.
     """
+
     # Input
     run_id: str
     issue: GithubIssue

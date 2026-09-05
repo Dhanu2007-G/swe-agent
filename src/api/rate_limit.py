@@ -3,6 +3,7 @@ src/api/rate_limit.py — Token-bucket rate limiter using Redis.
 Applied per GitHub installation ID to prevent runaway webhook floods
 and protect against accidentally burning API quota.
 """
+
 from __future__ import annotations
 
 import time
@@ -71,7 +72,7 @@ class RateLimiter:
             if hasattr(exec_res, "__await__"):
                 results = await exec_res
             else:
-                results = exec_res
+                results = exec_res  # type: ignore[assignment]
 
             try:
                 current_count = int(results[1])
@@ -116,6 +117,7 @@ API_TRIGGER_LIMITER = RateLimiter(
 
 # ── FastAPI dependency ────────────────────────────────────────────────────────
 
+
 def make_rate_limit_dependency(limiter: RateLimiter, identifier_fn: Callable) -> Callable:
     """
     Factory for a FastAPI dependency that applies a rate limit.
@@ -127,6 +129,7 @@ def make_rate_limit_dependency(limiter: RateLimiter, identifier_fn: Callable) ->
                          lambda req: req.headers.get("X-GitHub-Installation", "default")
                      ))])
     """
+
     async def _dependency(request: Request) -> None:
         identifier = identifier_fn(request)
         allowed, remaining = await limiter.check(identifier)
@@ -136,8 +139,7 @@ def make_rate_limit_dependency(limiter: RateLimiter, identifier_fn: Callable) ->
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail={
                     "error": "rate_limit_exceeded",
-                    "message": f"Max {limiter.max_requests} requests per "
-                               f"{limiter.window_seconds}s window",
+                    "message": f"Max {limiter.max_requests} requests per {limiter.window_seconds}s window",
                     "retry_after": limiter.window_seconds,
                 },
                 headers={"Retry-After": str(limiter.window_seconds)},

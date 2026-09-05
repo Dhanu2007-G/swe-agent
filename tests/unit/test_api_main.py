@@ -66,7 +66,6 @@ class TestCreateApp:
         assert response.body == b'{"detail":"Internal server error"}'
         log_error.assert_called_once()
 
-from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
@@ -74,10 +73,11 @@ from fastapi.testclient import TestClient
 class TestHealthEndpoints:
     def test_health_live(self) -> None:
         from src.api.main import create_app
+
         settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"])
         with patch("src.api.main.get_settings", return_value=settings):
             app = create_app()
-        
+
         client = TestClient(app)
         resp = client.get("/health/live")
         assert resp.status_code == 200
@@ -87,19 +87,21 @@ class TestHealthEndpoints:
     @patch("src.api.main.get_redis_connection")
     def test_health_ready_all_ok(self, mock_get_redis, mock_engine) -> None:
         from src.api.main import create_app
+
         settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"])
         with patch("src.api.main.get_settings", return_value=settings):
             app = create_app()
-        
+
         # mock async context manager for db conn
-        mock_conn = AsyncMock(); mock_conn.execute = AsyncMock()
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock()
         mock_engine.connect.return_value.__aenter__.return_value = mock_conn
-        
+
         mock_redis = AsyncMock()
         mock_redis.ping.return_value = True
         mock_redis.keys.return_value = [b"rq:worker:123"]
         mock_get_redis.return_value = mock_redis
-        
+
         client = TestClient(app)
         resp = client.get("/health/ready")
         assert resp.status_code == 200
@@ -109,18 +111,19 @@ class TestHealthEndpoints:
     @patch("src.api.main.get_redis_connection")
     def test_health_ready_db_fails(self, mock_get_redis, mock_engine) -> None:
         from src.api.main import create_app
+
         settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"])
         with patch("src.api.main.get_settings", return_value=settings):
             app = create_app()
-        
+
         # force DB fail
         mock_engine.connect.side_effect = Exception("DB offline")
-        
+
         mock_redis = AsyncMock()
         mock_redis.ping.return_value = True
         mock_redis.keys.return_value = [b"rq:worker:123"]
         mock_get_redis.return_value = mock_redis
-        
+
         client = TestClient(app)
         resp = client.get("/health/ready")
         assert resp.status_code == 503
@@ -131,15 +134,17 @@ class TestHealthEndpoints:
     @patch("src.api.main.get_redis_connection")
     def test_health_ready_redis_fails_and_worker_empty(self, mock_get_redis, mock_engine) -> None:
         from src.api.main import create_app
+
         settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"])
         with patch("src.api.main.get_settings", return_value=settings):
             app = create_app()
-        
-        mock_conn = AsyncMock(); mock_conn.execute = AsyncMock()
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock()
         mock_engine.connect.return_value.__aenter__.return_value = mock_conn
-        
+
         mock_get_redis.side_effect = Exception("Redis offline")
-        
+
         client = TestClient(app)
         resp = client.get("/health/ready")
         assert resp.status_code == 503
@@ -151,31 +156,33 @@ class TestHealthEndpoints:
     @patch("src.api.main.get_redis_connection")
     def test_health_ready_worker_empty(self, mock_get_redis, mock_engine) -> None:
         from src.api.main import create_app
+
         settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"])
         with patch("src.api.main.get_settings", return_value=settings):
             app = create_app()
-        
-        mock_conn = AsyncMock(); mock_conn.execute = AsyncMock()
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock()
         mock_engine.connect.return_value.__aenter__.return_value = mock_conn
-        
+
         mock_redis = AsyncMock()
         mock_redis.ping.return_value = True
-        mock_redis.keys.return_value = [] # no workers
+        mock_redis.keys.return_value = []  # no workers
         mock_get_redis.return_value = mock_redis
-        
+
         client = TestClient(app)
         resp = client.get("/health/ready")
         assert resp.status_code == 503
         assert resp.json()["status"] == "unavailable"
         assert resp.json()["components"]["worker"] == "failed"
 
-
     def test_metrics_code(self) -> None:
         from src.api.main import create_app
+
         settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"])
         with patch("src.api.main.get_settings", return_value=settings):
             app = create_app()
-        
+
         client = TestClient(app)
         resp = client.get("/metrics")
         assert resp.status_code == 200
@@ -187,8 +194,11 @@ class TestHealthEndpoints:
     async def test_lifespan(self, mock_close_redis, mock_init_db, mock_get_redis) -> None:
         from src.api.main import lifespan
         from fastapi import FastAPI
+
         app = FastAPI()
-        settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"], app_env="test", log_level="INFO", log_format="json")
+        settings = SimpleNamespace(
+            is_production=False, allowed_hosts=["localhost"], app_env="test", log_level="INFO", log_format="json"
+        )
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
         with patch("src.api.main.get_settings", return_value=settings):
@@ -204,8 +214,11 @@ class TestHealthEndpoints:
     async def test_lifespan_tolerates_errors(self, mock_init_db, mock_get_redis) -> None:
         from src.api.main import lifespan
         from fastapi import FastAPI
+
         app = FastAPI()
-        settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"], app_env="test", log_level="INFO", log_format="json")
+        settings = SimpleNamespace(
+            is_production=False, allowed_hosts=["localhost"], app_env="test", log_level="INFO", log_format="json"
+        )
         mock_get_redis.side_effect = RuntimeError("redis fail")
         mock_init_db.side_effect = RuntimeError("db fail")
         with patch("src.api.main.get_settings", return_value=settings):
@@ -216,6 +229,7 @@ class TestHealthEndpoints:
     @patch("src.api.main.get_redis_connection")
     async def test_close_redis_connection(self, mock_get_redis) -> None:
         from src.api.main import close_redis_connection
+
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
         await close_redis_connection()
@@ -225,6 +239,7 @@ class TestHealthEndpoints:
         class SyncCloseRedis:
             def __init__(self):
                 self.closed = False
+
             async def close(self):
                 self.closed = True
 
@@ -244,8 +259,11 @@ class TestHealthEndpoints:
     async def test_lifespan_shutdown_error_tolerant(self, mock_close_redis, mock_init_db, mock_get_redis) -> None:
         from src.api.main import lifespan
         from fastapi import FastAPI
+
         app = FastAPI()
-        settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"], app_env="test", log_level="INFO", log_format="json")
+        settings = SimpleNamespace(
+            is_production=False, allowed_hosts=["localhost"], app_env="test", log_level="INFO", log_format="json"
+        )
         with patch("src.api.main.get_settings", return_value=settings):
             async with lifespan(app):
                 pass
@@ -254,6 +272,7 @@ class TestHealthEndpoints:
     @patch("src.api.main.get_redis_connection")
     def test_health_ready_db_none_and_worker_exception(self, mock_get_redis) -> None:
         from src.api.main import create_app
+
         settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"])
         with patch("src.api.main.get_settings", return_value=settings):
             app = create_app()
@@ -271,6 +290,7 @@ class TestHealthEndpoints:
 
     def test_root_redirect(self) -> None:
         from src.api.main import create_app
+
         settings = SimpleNamespace(is_production=False, allowed_hosts=["localhost"])
         with patch("src.api.main.get_settings", return_value=settings):
             app = create_app()

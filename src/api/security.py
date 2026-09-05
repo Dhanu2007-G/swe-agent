@@ -13,6 +13,7 @@ Injects:
 
 Also validates content-type on POST requests to prevent MIME-type confusion.
 """
+
 from __future__ import annotations
 
 import time
@@ -56,9 +57,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._is_production = is_production
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         # Inject request ID for log correlation
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
 
@@ -78,9 +77,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
             # HSTS — production only (breaks local dev with HTTPS)
             if self._is_production:
-                response.headers["Strict-Transport-Security"] = (
-                    "max-age=63072000; includeSubDomains; preload"
-                )
+                response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
 
             # Strip server identification
             if "server" in response.headers:
@@ -104,9 +101,7 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
 
     MAX_BODY_BYTES = 1_048_576  # 1 MB — GitHub webhook payloads are typically < 50KB
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         # Check Content-Length before reading body
         content_length = request.headers.get("content-length")
         if content_length:
@@ -134,10 +129,7 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
             content_type = request.headers.get("content-type", "")
             # Webhooks from GitHub use application/json but also send extra params
             # So we check prefix only
-            if (
-                request.url.path.startswith("/api/")
-                and not content_type.startswith("application/json")
-            ):
+            if request.url.path.startswith("/api/") and not content_type.startswith("application/json"):
                 log.warning(
                     "security.wrong_content_type",
                     content_type=content_type,

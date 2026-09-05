@@ -2,6 +2,7 @@
 tests/unit/test_context.py — Tests for AST context builder.
 Validates token budget enforcement, symbol extraction, truncation strategies.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -55,6 +56,7 @@ async def fetch_data(url: str) -> bytes:
 
 # ── Symbol Extraction ─────────────────────────────────────────────────────────
 
+
 class TestSymbolExtraction:
     def test_extracts_class(self) -> None:
         symbols = _extract_python_symbols_regex(SAMPLE_PYTHON)
@@ -96,6 +98,7 @@ class TestSymbolExtraction:
 
 # ── Token Counting ────────────────────────────────────────────────────────────
 
+
 class TestTokenCounting:
     def test_empty_string_is_zero(self) -> None:
         assert _count_tokens("") == 0
@@ -112,6 +115,7 @@ class TestTokenCounting:
 
 
 # ── Token Budget ──────────────────────────────────────────────────────────────
+
 
 class TestContextBudget:
     def test_fresh_budget_has_full_remaining(self) -> None:
@@ -141,6 +145,7 @@ class TestContextBudget:
 
 
 # ── Truncation ────────────────────────────────────────────────────────────────
+
 
 class TestTruncation:
     def test_truncates_at_function_boundary(self) -> None:
@@ -185,6 +190,7 @@ class TestTruncation:
 
 
 # ── Context Builder ───────────────────────────────────────────────────────────
+
 
 class TestContextBuilder:
     def test_single_file_renders(self) -> None:
@@ -242,6 +248,7 @@ class TestContextBuilder:
 
 
 # ── File Context Rendering ────────────────────────────────────────────────────
+
 
 class TestFileContextRendering:
     def test_to_prompt_block_includes_path(self) -> None:
@@ -311,7 +318,6 @@ class TestContextEdgeCases:
         assert unknown_syms == []
 
     def test_find_block_end_boundary(self) -> None:
-        from src.agent.context import _find_block_end
 
         assert _find_block_end(["line1", "line2"], 10) == 10
 
@@ -328,7 +334,9 @@ class TestContextEdgeCases:
         from src.agent.context import ContextBudget, _apply_token_budget, Symbol
 
         budget = ContextBudget(total_limit=150)
-        content = ("class A:\n    '''Docstring'''\n    def m1(self):\n        return 1\n\n" * 20) + "class B:\n    def m2(self):\n        pass\n"
+        content = (
+            "class A:\n    '''Docstring'''\n    def m1(self):\n        return 1\n\n" * 20
+        ) + "class B:\n    def m2(self):\n        pass\n"
         symbols = [
             Symbol(name="A", kind="class", start_line=0, end_line=5, signature="class A:"),
             Symbol(name="B", kind="class", start_line=100, end_line=105, signature="class B:"),
@@ -342,6 +350,7 @@ class TestContextEdgeCases:
             def __init__(self):
                 super().__init__(total_limit=150)
                 self.calls = 0
+
             def consume(self, count: int) -> bool:
                 self.calls += 1
                 if self.calls == 1:

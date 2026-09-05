@@ -1,6 +1,7 @@
 """
 tests/unit/test_webhook.py — Tests for webhook signature validation and event handling.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -26,26 +27,27 @@ def make_signature(webhook_secret: str):
             digestmod=hashlib.sha256,
         ).hexdigest()
         return f"sha256={sig}"
+
     return _make
 
 
 @pytest.fixture
 def app(webhook_secret: str):
     import os
+
     os.environ["GITHUB_TOKEN"] = "ghp_test"
     os.environ["GITHUB_WEBHOOK_SECRET"] = webhook_secret
     os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test"
     os.environ["DATABASE_URL"] = "postgresql+asyncpg://user:pass@localhost/test"
     from src.api.main import create_app
+
     return create_app()
 
 
 class TestWebhookSignatureValidation:
-    def test_valid_signature_accepted(
-        self, make_signature, webhook_secret
-    ) -> None:
-        from unittest.mock import MagicMock, patch
+    def test_valid_signature_accepted(self, make_signature, webhook_secret) -> None:
         from src.tools.github import GitHubClient
+
         mock_settings = MagicMock()
         mock_settings.github_webhook_secret_value = webhook_secret
         payload = b'{"action": "opened"}'
@@ -55,22 +57,21 @@ class TestWebhookSignatureValidation:
 
     def test_invalid_signature_rejected(self, webhook_secret) -> None:
         from src.tools.github import GitHubClient
+
         payload = b'{"action": "opened"}'
-        assert GitHubClient.validate_webhook_signature(
-            payload, "sha256=deadbeef"
-        ) is False
+        assert GitHubClient.validate_webhook_signature(payload, "sha256=deadbeef") is False
 
     def test_missing_prefix_rejected(self, webhook_secret) -> None:
         from src.tools.github import GitHubClient
-        payload = b'hello'
-        assert GitHubClient.validate_webhook_signature(
-            payload, "invalidsig"
-        ) is False
+
+        payload = b"hello"
+        assert GitHubClient.validate_webhook_signature(payload, "invalidsig") is False
 
     def test_timing_safe_comparison(self, make_signature) -> None:
         """Ensure we use hmac.compare_digest, not ==."""
         from src.tools.github import GitHubClient
         import inspect
+
         source = inspect.getsource(GitHubClient.validate_webhook_signature)
         assert "compare_digest" in source, "Must use constant-time comparison"
 

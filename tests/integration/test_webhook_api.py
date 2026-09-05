@@ -11,6 +11,7 @@ Tests the full webhook request lifecycle:
 
 All DB and Redis calls are mocked — this tests HTTP-layer behaviour only.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -24,23 +25,26 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Set required env vars before importing app
-os.environ.update({
-    "ANTHROPIC_API_KEY": "sk-ant-test",
-    "GITHUB_TOKEN": "ghp_test",
-    "GITHUB_WEBHOOK_SECRET": "test-secret-xyz",
-    "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/test",
-    "REDIS_URL": "redis://localhost:6379/1",
-    "APP_ENV": "development",
-    "LANGCHAIN_TRACING_V2": "false",
-})
+os.environ.update(
+    {
+        "ANTHROPIC_API_KEY": "sk-ant-test",
+        "GITHUB_TOKEN": "ghp_test",
+        "GITHUB_WEBHOOK_SECRET": "test-webhook-secret",
+        "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/test",
+        "REDIS_URL": "redis://localhost:6379/1",
+        "APP_ENV": "development",
+        "LANGCHAIN_TRACING_V2": "false",
+    }
+)
 
 from src.config import invalidate_settings_cache
+
 invalidate_settings_cache()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-WEBHOOK_SECRET = "test-secret-xyz"
+WEBHOOK_SECRET = "test-webhook-secret"
 
 
 def _sign(payload: bytes) -> str:
@@ -58,17 +62,19 @@ def _issue_payload(
     repo: str = "owner/repo",
     issue_number: int = 42,
 ) -> bytes:
-    return json.dumps({
-        "action": action,
-        "issue": {
-            "number": issue_number,
-            "title": "Bug: crash on None input",
-            "body": "It crashes when input is None.",
-            "labels": [{"name": l} for l in (labels or ["agent-fix"])],
-        },
-        "repository": {"full_name": repo},
-        "label": {"name": labels[0] if labels else "agent-fix"},
-    }).encode()
+    return json.dumps(
+        {
+            "action": action,
+            "issue": {
+                "number": issue_number,
+                "title": "Bug: crash on None input",
+                "body": "It crashes when input is None.",
+                "labels": [{"name": l} for l in (labels or ["agent-fix"])],
+            },
+            "repository": {"full_name": repo},
+            "label": {"name": labels[0] if labels else "agent-fix"},
+        }
+    ).encode()
 
 
 @pytest.fixture(scope="module")
@@ -82,12 +88,14 @@ def client() -> TestClient:
         mock_redis.return_value.aclose = AsyncMock()
 
         from src.api.main import create_app
+
         app = create_app()
         with TestClient(app, raise_server_exceptions=False) as c:
             yield c
 
 
 # ── Signature Validation ──────────────────────────────────────────────────────
+
 
 class TestSignatureValidation:
     def test_valid_signature_accepted(self, client: TestClient) -> None:
@@ -96,8 +104,7 @@ class TestSignatureValidation:
 
         with (
             patch("src.api.webhook.RunRepository") as mock_repo_cls,
-            patch("src.api.webhook.enqueue_issue_job", new_callable=AsyncMock,
-                  return_value="job-123"),
+            patch("src.api.webhook.enqueue_issue_job", new_callable=AsyncMock, return_value="job-123"),
         ):
             mock_repo = AsyncMock()
             mock_repo.get_active_run.return_value = None
@@ -160,6 +167,7 @@ class TestSignatureValidation:
 
 # ── Event Filtering ───────────────────────────────────────────────────────────
 
+
 class TestEventFiltering:
     def _post(self, client: TestClient, payload: bytes, event: str = "issues") -> Any:
         sig = _sign(payload)
@@ -199,8 +207,7 @@ class TestEventFiltering:
 
         with (
             patch("src.api.webhook.RunRepository") as mock_repo_cls,
-            patch("src.api.webhook.enqueue_issue_job", new_callable=AsyncMock,
-                  return_value="job-456"),
+            patch("src.api.webhook.enqueue_issue_job", new_callable=AsyncMock, return_value="job-456"),
         ):
             mock_repo = AsyncMock()
             mock_repo.get_active_run.return_value = None
@@ -215,8 +222,7 @@ class TestEventFiltering:
 
         with (
             patch("src.api.webhook.RunRepository") as mock_repo_cls,
-            patch("src.api.webhook.enqueue_issue_job", new_callable=AsyncMock,
-                  return_value="job-789"),
+            patch("src.api.webhook.enqueue_issue_job", new_callable=AsyncMock, return_value="job-789"),
         ):
             mock_repo = AsyncMock()
             mock_repo.get_active_run.return_value = None
@@ -228,6 +234,7 @@ class TestEventFiltering:
 
 
 # ── Idempotency ───────────────────────────────────────────────────────────────
+
 
 class TestIdempotency:
     def test_duplicate_delivery_ignored(self, client: TestClient) -> None:
@@ -291,15 +298,14 @@ class TestIdempotency:
 
 # ── Health + Metrics ──────────────────────────────────────────────────────────
 
+
 class TestHealthEndpoints:
     def test_health_returns_ok(self, client: TestClient) -> None:
         resp = client.get("/health")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
-    def test_metrics_endpoint_returns_prometheus_format(
-        self, client: TestClient
-    ) -> None:
+    def test_metrics_endpoint_returns_prometheus_format(self, client: TestClient) -> None:
         resp = client.get("/metrics")
         assert resp.status_code == 200
         assert "text/plain" in resp.headers["content-type"]
@@ -308,6 +314,7 @@ class TestHealthEndpoints:
 
 
 # ── Security Headers ──────────────────────────────────────────────────────────
+
 
 class TestSecurityHeaders:
     def test_security_headers_present(self, client: TestClient) -> None:
@@ -331,6 +338,7 @@ class TestSecurityHeaders:
 
 # ── Malformed Requests ────────────────────────────────────────────────────────
 
+
 class TestMalformedRequests:
     def test_invalid_json_returns_400(self, client: TestClient) -> None:
         payload = b"this is not json {"
@@ -346,9 +354,7 @@ class TestMalformedRequests:
         )
         assert resp.status_code == 400
 
-    def test_empty_body_with_valid_sig_returns_400(
-        self, client: TestClient
-    ) -> None:
+    def test_empty_body_with_valid_sig_returns_400(self, client: TestClient) -> None:
         payload = b""
         sig = _sign(payload)
         resp = client.post(

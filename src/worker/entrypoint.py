@@ -2,6 +2,7 @@
 src/worker/entrypoint.py — RQ worker process entrypoint.
 Handles graceful shutdown on SIGTERM, registers queues, configures logging.
 """
+
 from __future__ import annotations
 
 import os
@@ -13,6 +14,7 @@ import structlog
 import rq
 from rq import Queue, Worker
 from rq.timeouts import JobTimeoutException
+
 _RQ_AVAILABLE = True
 
 from src.config import get_settings
@@ -41,7 +43,6 @@ def main() -> None:
         connection=redis_conn,
         name=f"worker-{os.getpid()}",
         log_job_description=True,
-        job_execution_timeout=settings.redis_job_timeout,
         exception_handlers=[_handle_job_exception],
     )
 
@@ -55,7 +56,7 @@ def main() -> None:
     # Graceful shutdown on SIGTERM
     def _sigterm_handler(signum: int, frame: object) -> None:
         log.info("worker.sigterm_received", pid=os.getpid())
-        worker.request_stop()
+        worker.request_stop(signum, frame)
 
     signal.signal(signal.SIGTERM, _sigterm_handler)
 
@@ -67,9 +68,7 @@ def main() -> None:
         log.info("worker.stopped", pid=os.getpid())
 
 
-def _handle_job_exception(
-    job: object, exc_type: type, exc_value: Exception, traceback: object
-) -> bool:
+def _handle_job_exception(job: object, exc_type: type, exc_value: Exception, traceback: object) -> bool:
     """
     Custom exception handler for RQ jobs.
     Returns True to stop further exception handling (job stays failed).

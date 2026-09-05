@@ -2,6 +2,7 @@
 src/tools/github.py — Production GitHub client.
 All operations wrapped with retry, rate-limit handling, and structured errors.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +13,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import git
@@ -41,11 +43,10 @@ class GitHubNotFoundError(Exception):
     pass
 
 
-def _build_authenticated_clone_kwargs(
-    repo_full_name: str, settings: Any = None
-) -> dict[str, Any]:
+def _build_authenticated_clone_kwargs(repo_full_name: str, settings: Any = None) -> dict[str, Any]:
     """Helper to build clone kwargs with authentication."""
     import base64
+
     s = settings or get_settings()
     token = getattr(s, "github_token_value", getattr(s, "github_token", ""))
     auth_bytes = f"x-access-token:{token}".encode()
@@ -83,28 +84,23 @@ class GitHubClient:
 
     # ── Issue Operations ──────────────────────────────────────────────────────
 
-    async def get_issue(
-        self, repo_full_name: str, issue_number: int
-    ) -> GithubIssue:
+    async def get_issue(self, repo_full_name: str, issue_number: int) -> GithubIssue:
         """Fetch and parse a GitHub issue into our domain model."""
+
         def _fetch() -> GithubIssue:
             assert self._gh is not None
             repo = self._gh.get_repo(repo_full_name)
             issue = repo.get_issue(issue_number)
 
-            comments = [
-                c.body for c in issue.get_comments()
-                if c.body and len(c.body) > 10
-            ][:10]
+            comments = [c.body for c in issue.get_comments() if c.body and len(c.body) > 10][:10]
 
             linked_prs: list[int] = []
             try:
                 for event in issue.get_timeline():
-                    if (event.event == "cross-referenced" and
-                            event.source and event.source.issue):
+                    if event.event == "cross-referenced" and event.source and event.source.issue:
                         linked_prs.append(event.source.issue.number)
             except Exception:
-                pass
+                log.warning("github.timeline_fetch_failed", repo=repo_full_name, issue=issue_number)
 
             return GithubIssue(
                 issue_number=issue.number,
@@ -119,7 +115,7 @@ class GitHubClient:
                 html_url=issue.html_url,
             )
 
-        return await self._with_retry(_fetch)
+        return await self._with_retry(_fetch)  # type: ignore[no-any-return]
 
     async def comment_on_issue(
         self,
@@ -128,6 +124,7 @@ class GitHubClient:
         body: str,
     ) -> None:
         """Post a comment on an issue."""
+
         def _comment() -> None:
             assert self._gh is not None
             repo = self._gh.get_repo(repo_full_name)
@@ -183,20 +180,17 @@ class GitHubClient:
             with tempfile.TemporaryDirectory() as tmpdir:
                 clone_kwargs = _build_authenticated_clone_kwargs(repo_full_name, settings)
                 clone_url = clone_kwargs.pop("url", f"https://github.com/{repo_full_name}.git")
-                repo = git.Repo.clone_from(clone_url, tmpdir, allow_unsafe_options=True, **clone_kwargs)
+                repo = git.Repo.clone_from(clone_url, tmpdir, **clone_kwargs)
                 repo.git.checkout("-b", branch_name)
 
                 # Configure git identity
+                repo.config_writer().set_value("user", "name", settings.github_bot_username).release()
                 repo.config_writer().set_value(
-                    "user", "name", settings.github_bot_username
-                ).release()
-                repo.config_writer().set_value(
-                    "user", "email",
-                    f"{settings.github_bot_username}@users.noreply.github.com"
+                    "user", "email", f"{settings.github_bot_username}@users.noreply.github.com"
                 ).release()
 
                 # Apply each patch
-                for patch in (patches or []):
+                for patch in patches or []:
                     _apply_patch_to_worktree(Path(tmpdir), patch)
 
                 # Commit all changes
@@ -234,8 +228,7 @@ class GitHubClient:
 
             # Link to issue via comment
             gh_pr.create_issue_comment(
-                f"This PR was automatically generated to resolve #{issue_number}.\n"
-                f"Closes #{issue_number}"
+                f"This PR was automatically generated to resolve #{issue_number}.\nCloses #{issue_number}"
             )
 
             return PullRequest(
@@ -247,12 +240,10 @@ class GitHubClient:
                 body=body,
             )
 
-        return await self._with_retry(_create)
+        return await self._with_retry(_create)  # type: ignore[no-any-return]
 
     @staticmethod
-    def validate_webhook_signature(
-        payload: bytes, signature_header: str
-    ) -> bool:
+    def validate_webhook_signature(payload: bytes, signature_header: str) -> bool:
         """
         Validate GitHub webhook HMAC-SHA256 signature.
         Constant-time comparison to prevent timing attacks.
@@ -266,10 +257,6 @@ class GitHubClient:
         env_secret = os.environ.get("GITHUB_WEBHOOK_SECRET")
         if env_secret:
             keys_to_try.append(env_secret)
-
-        for test_s in ("test-secret-xyz", "test-webhook-secret"):
-            if test_s not in keys_to_try:
-                keys_to_try.append(test_s)
 
         try:
             settings = get_settings()
@@ -320,9 +307,8 @@ class GitHubClient:
 
 # ── Patch Application Helper ──────────────────────────────────────────────────
 
-def _apply_patch_to_worktree(
-    root: "Path", patch: FilePatch
-) -> None:
+
+def _apply_patch_to_worktree(root: "Path", patch: FilePatch) -> None:
     """Apply a FilePatch to a local directory using the `patch` command with full-file fallback."""
     import subprocess
     from pathlib import Path
@@ -335,7 +321,8 @@ def _apply_patch_to_worktree(
             target.write_text(patch.full_content, encoding="utf-8")
         else:
             lines = [
-                line[1:] for line in patch.unified_diff.splitlines()
+                line[1:]
+                for line in patch.unified_diff.splitlines()
                 if line.startswith("+") and not line.startswith("+++")
             ]
             target.write_text("\n".join(lines), encoding="utf-8")
@@ -366,6 +353,4 @@ def _apply_patch_to_worktree(
             target.write_text(patch.full_content, encoding="utf-8")
             return
         error = result.stderr.decode(errors="replace")
-        raise RuntimeError(
-            f"Patch failed for {patch.file_path}: {error}"
-        )
+        raise RuntimeError(f"Patch failed for {patch.file_path}: {error}")

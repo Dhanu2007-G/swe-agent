@@ -2,9 +2,12 @@
 tests/unit/test_sandbox.py — Unit tests for Docker sandbox result parsing.
 No real Docker required — tests the pure parsing logic.
 """
+
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
 import pytest
 
 from src.tools.sandbox import _infer_error_category, _parse_raw_pytest_output, _parse_test_results
@@ -63,15 +66,14 @@ class TestParseTestResultsJson:
             {
                 "nodeid": "tests/test_foo.py::test_broken",
                 "outcome": "failed",
-                "call": {
-                    "longrepr": "AssertionError: assert 1 == 2\n  where 1 = foo()"
-                },
+                "call": {"longrepr": "AssertionError: assert 1 == 2\n  where 1 = foo()"},
             },
         ],
     }
 
     def test_parses_failures(self) -> None:
         import json
+
         result = _parse_test_results(
             json_report=json.dumps(self.SAMPLE_REPORT),
             raw_output="",
@@ -94,6 +96,7 @@ class TestParseTestResultsJson:
 
     def test_parses_coverage_from_json(self) -> None:
         import json
+
         report = {
             "summary": {"total": 5, "passed": 5, "failed": 0},
             "tests": [],
@@ -206,17 +209,25 @@ class TestSandboxRunnerHelpers:
         from src.tools.sandbox import _parse_jest_vitest_output, _parse_test_results
 
         # 1. Structured JSON (Vitest/Jest)
-        json_payload = json.dumps({
-            "numTotalTests": 2,
-            "numPassedTests": 1,
-            "numFailedTests": 1,
-            "testResults": [{
-                "assertionResults": [
-                    {"status": "passed", "title": "test one"},
-                    {"status": "failed", "title": "test two", "failureMessages": ["TypeError: undefined is not a function"]},
-                ]
-            }]
-        })
+        json_payload = json.dumps(
+            {
+                "numTotalTests": 2,
+                "numPassedTests": 1,
+                "numFailedTests": 1,
+                "testResults": [
+                    {
+                        "assertionResults": [
+                            {"status": "passed", "title": "test one"},
+                            {
+                                "status": "failed",
+                                "title": "test two",
+                                "failureMessages": ["TypeError: undefined is not a function"],
+                            },
+                        ]
+                    }
+                ],
+            }
+        )
         res_json = _parse_jest_vitest_output(f"Output before\n{json_payload}\nOutput after", exit_code=1, duration=1.2)
         assert res_json.passed is False
         assert res_json.total == 2
@@ -333,7 +344,7 @@ class TestSandboxRunnerHelpers:
 
         provider = CloudSandboxProvider(endpoint="http://remote-cluster:8080")
         settings = SimpleNamespace(sandbox_timeout_seconds=30)
-        
+
         container = await provider.create_container(tmp_path, "run-xyz", "owner/repo", settings)
         assert container["status"] == "running"
 

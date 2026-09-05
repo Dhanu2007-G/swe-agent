@@ -55,8 +55,10 @@ class TestQueueHelpers:
         captured: dict[str, object] = {}
 
         class FakeRetry:
-            def __init__(self, max: int) -> None:
+            def __init__(self, max: int, intervals: list[int] | None = None) -> None:
                 self.max = max
+                self.intervals = intervals or [60]
+                self.enqueue_at_front = False
 
         class FakeQueue:
             def __init__(self, name: str, connection: str, **kwargs: object) -> None:
@@ -70,10 +72,14 @@ class TestQueueHelpers:
 
         with (
             patch("src.worker.queue.get_sync_redis", return_value="sync-redis"),
-            patch.dict("sys.modules", {
-                "rq": SimpleNamespace(Queue=FakeQueue, Retry=FakeRetry),
-                "rq.serializers": SimpleNamespace(JSONSerializer=str)
-            }),
+            patch("src.worker.queue.Queue", FakeQueue),
+            patch.dict(
+                "sys.modules",
+                {
+                    "rq": SimpleNamespace(Queue=FakeQueue, Retry=FakeRetry),
+                    "rq.serializers": SimpleNamespace(JSONSerializer=str),
+                },
+            ),
         ):
             _enqueue_sync("run-123", "owner/repo", 42, True, 900)
 
@@ -96,8 +102,7 @@ class TestQueueHelpers:
         redis = AsyncMock()
         redis.hgetall.return_value = {"status": "queued", "job_id": "run-123"}
 
-        with patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock,
-                   return_value=redis):
+        with patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock, return_value=redis):
             result = await get_job_status("run-123")
 
         assert result == {"status": "queued", "job_id": "run-123"}
@@ -109,8 +114,7 @@ class TestQueueHelpers:
         redis = AsyncMock()
         redis.hgetall.return_value = {}
 
-        with patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock,
-                   return_value=redis):
+        with patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock, return_value=redis):
             result = await get_job_status("run-123")
 
         assert result is None
@@ -122,8 +126,7 @@ class TestQueueHelpers:
         redis = AsyncMock()
         redis.get.return_value = "run-other"
 
-        with patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock,
-                   return_value=redis):
+        with patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock, return_value=redis):
             await release_active_job_lock("owner/repo", 42, "run-123")
 
         redis.delete.assert_not_awaited()

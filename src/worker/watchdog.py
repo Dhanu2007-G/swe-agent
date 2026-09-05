@@ -6,6 +6,7 @@ Docker containers accumulate, and the queue fills with ghost jobs.
 
 Runs as a separate process (or scheduled task) — checks every 5 minutes.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -67,10 +68,7 @@ async def _reap_stuck_runs(results: dict[str, int]) -> None:
     try:
         # Get all runs that started before the threshold and are still running
         all_running = await repo.list_runs(status="running", limit=100)
-        stuck = [
-            r for r in all_running
-            if r.started_at and r.started_at.replace(tzinfo=timezone.utc) < threshold
-        ]
+        stuck = [r for r in all_running if r.started_at and r.started_at.replace(tzinfo=timezone.utc) < threshold]
 
         for run in stuck:
             log.warning(
@@ -123,9 +121,7 @@ async def _remove_stale_containers(results: dict[str, int]) -> None:
         removed = 0
         try:
             client = docker.from_env(timeout=10)
-            threshold = datetime.now(timezone.utc) - timedelta(
-                minutes=STALE_CONTAINER_THRESHOLD_MINUTES
-            )
+            threshold = datetime.now(timezone.utc) - timedelta(minutes=STALE_CONTAINER_THRESHOLD_MINUTES)
 
             containers = client.containers.list(
                 all=True,
@@ -138,9 +134,9 @@ async def _remove_stale_containers(results: dict[str, int]) -> None:
                     created_str = container.attrs.get("Created", "")
                     # Docker returns ISO 8601 with nanoseconds — trim to microseconds
                     created_str = created_str[:26] + "Z" if len(created_str) > 26 else created_str
-                    created_dt = datetime.fromisoformat(
-                        created_str.rstrip("Z").replace("T", " ")
-                    ).replace(tzinfo=timezone.utc)
+                    created_dt = datetime.fromisoformat(created_str.rstrip("Z").replace("T", " ")).replace(
+                        tzinfo=timezone.utc
+                    )
 
                     if created_dt < threshold:
                         run_id = container.labels.get("swe-agent.run_id", "unknown")
@@ -159,7 +155,7 @@ async def _remove_stale_containers(results: dict[str, int]) -> None:
                 except docker.errors.APIError as e:
                     log.warning("watchdog.container_remove_failed", error=str(e))
                 except (ValueError, KeyError):
-                    pass  # Can't parse creation time — skip
+                    log.debug("watchdog.container_time_parse_skipped", container_id=container.short_id)
 
         except docker.errors.DockerException as e:
             log.warning("watchdog.docker_unavailable", error=str(e))
@@ -197,6 +193,7 @@ async def _post_watchdog_comment(
 
 
 # ── Watchdog Runner ───────────────────────────────────────────────────────────
+
 
 async def run_forever(interval_seconds: int = 300) -> None:
     """Run the watchdog in an infinite loop. Called from the entrypoint."""

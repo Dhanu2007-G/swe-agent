@@ -2,6 +2,7 @@
 src/worker/processor.py — RQ job processor.
 This is the function called by RQ workers. Sets up the agent, runs it, persists results.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,18 +40,14 @@ def process_issue_job(
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_format)
 
-    log.info("worker.job_start", run_id=run_id, repo=repo_full_name,
-             issue=issue_number)
+    log.info("worker.job_start", run_id=run_id, repo=repo_full_name, issue=issue_number)
 
     try:
-        result = asyncio.run(
-            _run_agent_async(repo_full_name, issue_number, run_id)
-        )
+        result = asyncio.run(_run_agent_async(repo_full_name, issue_number, run_id))
         log.info("worker.job_complete", run_id=run_id, status=result.get("status"))
         return result
     except Exception as e:
-        log.error("worker.job_fatal_error", run_id=run_id,
-                  error=str(e), tb=traceback.format_exc())
+        log.error("worker.job_fatal_error", run_id=run_id, error=str(e), tb=traceback.format_exc())
         # Try to persist the failure
         asyncio.run(_persist_failure(run_id, repo_full_name, issue_number, str(e)))
         raise  # Re-raise so RQ marks the job as failed
@@ -91,8 +88,11 @@ async def _run_agent_async(
                 final_state = await run_agent(initial_state, checkpointer=checkpointer)
         except Exception:
             # Fallback: run without checkpointing if Postgres checkpoint tables fail
-            log.warning("worker.checkpointing_fallback", run_id=run_id,
-                        reason="Checkpointer unavailable, running without state snapshots")
+            log.warning(
+                "worker.checkpointing_fallback",
+                run_id=run_id,
+                reason="Checkpointer unavailable, running without state snapshots",
+            )
             final_state = await run_agent(initial_state)
 
         # Extract results
@@ -104,13 +104,17 @@ async def _run_agent_async(
 
         # Serialize state snapshot for post-mortem debugging
         import json
+
         try:
             state_snapshot = json.dumps(
-                {k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
-                 for k, v in final_state.items()},
+                {
+                    k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
+                    for k, v in final_state.items()
+                },
                 default=str,
             )
         except Exception:
+            log.warning("worker.state_snapshot_failed", run_id=run_id)
             state_snapshot = None
 
         await repo.update_run(
@@ -127,7 +131,7 @@ async def _run_agent_async(
         updates = {"status": status}
         if pr_url:
             updates["pr_url"] = pr_url
-        await redis.hset(f"job:{run_id}", mapping=updates)
+        await redis.hset(f"job:{run_id}", mapping=updates)  # type: ignore[arg-type]
 
         # Post a status comment on the issue
         try:
@@ -146,9 +150,7 @@ async def _run_agent_async(
         await release_active_job_lock(repo_full_name, issue_number, run_id)
 
 
-async def _persist_failure(
-    run_id: str, repo: str, issue: int, error: str
-) -> None:
+async def _persist_failure(run_id: str, repo: str, issue: int, error: str) -> None:
     """Best-effort failure persistence."""
     try:
         run_repo = RunRepository()
@@ -161,7 +163,7 @@ async def _persist_failure(
         redis = await get_redis_connection()
         await redis.hset(f"job:{run_id}", mapping={"status": "failed"})
     except Exception:
-        pass
+        log.error("worker.persist_failure_failed", run_id=run_id, repo=repo, issue=issue)
     finally:
         await release_active_job_lock(repo, issue, run_id)
 

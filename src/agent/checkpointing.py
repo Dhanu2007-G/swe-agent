@@ -6,6 +6,7 @@ Enables:
   - Human-in-the-loop breakpoints (future)
   - Parallel runs without state collision (thread_id isolation)
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -33,15 +34,13 @@ async def get_checkpointer() -> AsyncPostgresSaver:
     settings = get_settings()
 
     # LangGraph expects a sync psycopg connection string (not asyncpg)
-    pg_url = str(settings.database_url).replace(
-        "postgresql+asyncpg://", "postgresql://"
-    )
+    pg_url = str(settings.database_url).replace("postgresql+asyncpg://", "postgresql://")
 
-    _checkpointer = AsyncPostgresSaver.from_conn_string(pg_url)
-    await _checkpointer.setup()  # creates langgraph checkpoint tables
+    _checkpointer = AsyncPostgresSaver.from_conn_string(pg_url)  # type: ignore[assignment]
+    await getattr(_checkpointer, "setup")()  # creates langgraph checkpoint tables
 
     log.info("checkpointer.initialized")
-    return _checkpointer
+    return _checkpointer  # type: ignore[return-value]
 
 
 @asynccontextmanager
@@ -75,7 +74,7 @@ async def get_run_state(run_id: str) -> dict | None:
     """
     cp = await get_checkpointer()
     config = {"configurable": {"thread_id": run_id}}
-    checkpoint = await cp.aget(config)
+    checkpoint = await cp.aget(config)  # type: ignore[arg-type]
     if checkpoint is None:
         return None
     return checkpoint.get("channel_values", {})
@@ -88,11 +87,13 @@ async def list_checkpointed_runs(limit: int = 20) -> list[dict]:
     async for checkpoint_tuple in cp.alist({}):
         metadata = checkpoint_tuple.metadata or {}
         config = checkpoint_tuple.config or {}
-        runs.append({
-            "thread_id": config.get("configurable", {}).get("thread_id"),
-            "step": checkpoint_tuple.checkpoint.get("id"),
-            "created_at": metadata.get("created_at"),
-        })
+        runs.append(
+            {
+                "thread_id": config.get("configurable", {}).get("thread_id"),
+                "step": checkpoint_tuple.checkpoint.get("id"),
+                "created_at": metadata.get("created_at"),
+            }
+        )
         if len(runs) >= limit:
             break
     return runs

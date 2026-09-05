@@ -55,8 +55,10 @@ services:
     volumes:
       # Workers need Docker socket to spin up sandbox containers
       - /var/run/docker.sock:/var/run/docker.sock
-    # Worker needs elevated access for Docker-in-Docker
-    user: root  # TODO: use docker group membership in prod
+    # Worker needs Docker socket access — use group_add instead of root
+    user: "1000:1000"
+    group_add:
+      - ${DOCKER_GID:-999}  # Pass host's docker group GID via env or default to 999
     environment:
       - LOG_FORMAT=json
       - LOG_LEVEL=INFO

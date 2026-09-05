@@ -3,6 +3,7 @@ src/tools/filesystem.py — Repo file access + context loading.
 src/tools/search.py is merged here for simplicity.
 Uses tree-sitter for AST-aware context extraction.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -38,14 +39,26 @@ LANGUAGE_MAP = {
 }
 
 IGNORE_DIRS = {
-    ".git", "__pycache__", "node_modules", ".venv", "venv",
-    ".env", "dist", "build", ".pytest_cache", ".mypy_cache",
+    ".git",
+    "__pycache__",
+    "node_modules",
+    ".venv",
+    "venv",
+    ".env",
+    "dist",
+    "build",
+    ".pytest_cache",
+    ".mypy_cache",
     "*.egg-info",
 }
 
 IGNORE_FILES = {
-    ".DS_Store", "Thumbs.db", "*.pyc", "*.pyo",
-    "*.lock", "package-lock.json",
+    ".DS_Store",
+    "Thumbs.db",
+    "*.pyc",
+    "*.pyo",
+    "*.lock",
+    "package-lock.json",
 }
 
 _tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -157,10 +170,7 @@ async def load_file_contexts(
             "token_count": token_count,
         }
 
-    tasks = [
-        loop.run_in_executor(None, _load_one, p)
-        for p in paths
-    ]
+    tasks = [loop.run_in_executor(None, _load_one, p) for p in paths]
     results = await asyncio.gather(*tasks)
     return [r for r in results if r is not None]
 
@@ -199,6 +209,7 @@ async def find_relevant_files(
                 tokens = _tokenize_for_bm25(rel + " " + " ".join(symbols))
                 corpus.append((rel, tokens))
             except Exception:
+                log.debug("filesystem.bm25_index_skip", file=rel)
                 continue
 
         if not corpus:
@@ -227,10 +238,7 @@ async def find_relevant_files(
 def _extract_symbols(content: str) -> list[str]:
     """Extract function/class names without a full AST parser (fast)."""
     symbols = []
-    for match in re.finditer(
-        r"^\s*(?:class|def|async def)\s+([a-zA-Z_][a-zA-Z0-9_]*)",
-        content, re.MULTILINE
-    ):
+    for match in re.finditer(r"^\s*(?:class|def|async def)\s+([a-zA-Z_][a-zA-Z0-9_]*)", content, re.MULTILINE):
         symbols.append(match.group(1))
     return symbols
 
