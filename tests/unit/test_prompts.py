@@ -3,7 +3,6 @@ tests/unit/test_prompts.py — Prompt quality and completeness tests.
 Prompts are the contract between our system and the LLM.
 Test them like any other interface.
 """
-
 from __future__ import annotations
 
 import pytest
@@ -42,7 +41,9 @@ class TestPlannerPrompt:
         """Planner should not invite LLM to 'explain' things."""
         bad_phrases = ["feel free", "you can also", "optionally"]
         for phrase in bad_phrases:
-            assert phrase.lower() not in PLANNER_SYSTEM.lower(), f"Permissive phrase found: '{phrase}'"
+            assert phrase.lower() not in PLANNER_SYSTEM.lower(), (
+                f"Permissive phrase found: '{phrase}'"
+            )
 
 
 class TestCoderPrompt:
@@ -111,7 +112,9 @@ class TestErrorClassifierPrompt:
 
     def test_all_categories_listed(self) -> None:
         for cat in self.EXPECTED_CATEGORIES:
-            assert cat in ERROR_CLASSIFIER_SYSTEM, f"Category '{cat}' missing from error classifier prompt"
+            assert cat in ERROR_CLASSIFIER_SYSTEM, (
+                f"Category '{cat}' missing from error classifier prompt"
+            )
 
     def test_demands_single_word_output(self) -> None:
         """Classifier must produce a single category string, not an explanation."""
@@ -172,4 +175,6 @@ class TestPromptLengths:
             "CORRECTOR_SYSTEM": CORRECTOR_SYSTEM,
         }
         for name, prompt in long_prompts.items():
-            assert len(prompt) < 3000, f"{name} is {len(prompt)} chars — trim it (target < 3000)"
+            assert len(prompt) < 3000, (
+                f"{name} is {len(prompt)} chars — trim it (target < 3000)"
+            )

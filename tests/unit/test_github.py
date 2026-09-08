@@ -41,7 +41,12 @@ def fixed_tempdir(path: Path) -> object:
 def case_dir(prefix: str) -> object:
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[2] / "test_out" / "github_cases" / f"{prefix}-{uuid4().hex}"
+    root = (
+        Path(__file__).resolve().parents[2]
+        / "test_out"
+        / "github_cases"
+        / f"{prefix}-{uuid4().hex}"
+    )
     root.mkdir(parents=True, exist_ok=False)
     try:
         yield root
@@ -396,7 +401,9 @@ class TestRetryAndPatchHelpers:
         with case_dir("patch-create") as root:
             _apply_patch_to_worktree(root, patch_file)
 
-            assert (root / "src" / "new_file.py").read_text() == "print('hello')\nprint('world')"
+            assert (
+                root / "src" / "new_file.py"
+            ).read_text() == "print('hello')\nprint('world')"
 
     def test_apply_patch_to_worktree_deletes_files(self) -> None:
         from src.tools.github import _apply_patch_to_worktree
@@ -575,8 +582,7 @@ class TestRetryAndPatchHelpers:
 
     def test_validate_webhook_signature_edge_cases(self) -> None:
         from src.tools.github import GitHubClient
-        import hmac
-        import hashlib
+        import hmac, hashlib
 
         secret = "custom-sec-123"
         payload = b'{"action":"opened"}'

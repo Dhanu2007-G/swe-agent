@@ -1,7 +1,6 @@
 """
 src/api/routes.py — REST API for run management.
 """
-
 from __future__ import annotations
 
 from typing import Any
@@ -50,7 +49,7 @@ async def trigger_run(body: TriggerRequest) -> dict[str, Any]:
     get_run_coro = repo.get_active_run(body.repo_full_name, body.issue_number)
     existing = await get_run_coro if hasattr(get_run_coro, "__await__") else get_run_coro
     if existing:
-        return {"job_id": getattr(existing, "run_id", ""), "status": getattr(existing, "status", "")}
+        return {"job_id": existing.run_id, "status": existing.status}
 
     enqueue_coro = enqueue_issue_job(
         repo_full_name=body.repo_full_name,
@@ -58,7 +57,8 @@ async def trigger_run(body: TriggerRequest) -> dict[str, Any]:
         delivery_id="manual",
     )
     job_id = await enqueue_coro if hasattr(enqueue_coro, "__await__") else enqueue_coro
-    log.info("api.run_triggered", job_id=job_id, issue=body.issue_number, repo=body.repo_full_name)
+    log.info("api.run_triggered", job_id=job_id,
+             issue=body.issue_number, repo=body.repo_full_name)
     return {"job_id": job_id, "status": "queued"}
 
 
@@ -91,7 +91,9 @@ async def list_runs(
 ) -> list[RunResponse]:
     """List recent agent runs with optional filters."""
     run_repo = RunRepository()
-    runs = await run_repo.list_runs(repo_full_name=repo, status=status, limit=min(limit, 100))
+    runs = await run_repo.list_runs(
+        repo_full_name=repo, status=status, limit=min(limit, 100)
+    )
     return [
         RunResponse(
             run_id=r.run_id,

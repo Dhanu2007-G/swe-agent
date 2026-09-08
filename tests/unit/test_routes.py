@@ -20,7 +20,9 @@ class TestTriggerRun:
             ),
             pytest.raises(HTTPException) as exc_info,
         ):
-            await trigger_run(TriggerRequest(repo_full_name="owner/repo", issue_number=42))
+            await trigger_run(
+                TriggerRequest(repo_full_name="owner/repo", issue_number=42)
+            )
 
         assert exc_info.value.status_code == 429
 
@@ -41,7 +43,9 @@ class TestTriggerRun:
             ),
             patch("src.api.routes.RunRepository", return_value=repo),
         ):
-            result = await trigger_run(TriggerRequest(repo_full_name="owner/repo", issue_number=42))
+            result = await trigger_run(
+                TriggerRequest(repo_full_name="owner/repo", issue_number=42)
+            )
 
         assert result == {"job_id": "run-existing", "status": "pending"}
 
@@ -63,7 +67,9 @@ class TestTriggerRun:
                 new=AsyncMock(return_value="run-new"),
             ),
         ):
-            result = await trigger_run(TriggerRequest(repo_full_name="owner/repo", issue_number=42))
+            result = await trigger_run(
+                TriggerRequest(repo_full_name="owner/repo", issue_number=42)
+            )
 
         assert result == {"job_id": "run-new", "status": "queued"}
 

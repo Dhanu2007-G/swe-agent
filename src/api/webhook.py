@@ -2,7 +2,6 @@
 src/api/webhook.py — GitHub webhook receiver.
 Validates HMAC signature, filters relevant events, enqueues jobs idempotently.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -42,14 +41,16 @@ async def github_webhook(
     payload = await request.body()
 
     if not x_hub_signature_256:
-        log.warning("webhook.missing_signature", delivery=x_github_delivery)
+        log.warning("webhook.missing_signature",
+                    delivery=x_github_delivery)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing webhook signature",
         )
 
     if not GitHubClient.validate_webhook_signature(payload, x_hub_signature_256):
-        log.warning("webhook.invalid_signature", delivery=x_github_delivery)
+        log.warning("webhook.invalid_signature",
+                    delivery=x_github_delivery)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid webhook signature",
@@ -68,7 +69,8 @@ async def github_webhook(
     action = event_data.get("action", "")
     delivery_id = x_github_delivery or "unknown"
 
-    log.info("webhook.received", event_type=event_type, action=action, delivery=delivery_id)
+    log.info("webhook.received", event_type=event_type, action=action,
+             delivery=delivery_id)
 
     # ── Filter to actionable events ───────────────────────────────────────────
     if event_type != "issues":
@@ -87,12 +89,7 @@ async def github_webhook(
             )
 
     issue_data = event_data.get("issue")
-    if (
-        not isinstance(issue_data, dict)
-        or not isinstance(repo_data, dict)
-        or not issue_data.get("number")
-        or not repo_full_name
-    ):
+    if not isinstance(issue_data, dict) or not isinstance(repo_data, dict) or not issue_data.get("number") or not repo_full_name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing issue or repository data",
@@ -108,14 +105,12 @@ async def github_webhook(
             res = redis.set(dedup_key, "1", nx=True, ex=3600)
             is_new = await res if hasattr(res, "__await__") else res
             if not is_new:
-                return JSONResponse(
-                    {
-                        "status": "ignored",
-                        "reason": "duplicate delivery",
-                    }
-                )
+                return JSONResponse({
+                    "status": "ignored",
+                    "reason": "duplicate delivery",
+                })
         except Exception:
-            log.warning("webhook.dedup_check_failed", delivery=x_github_delivery)
+            pass
 
     if action not in HANDLED_ISSUE_ACTIONS:
         return JSONResponse({"status": "ignored", "reason": f"action '{action}'"})
@@ -123,26 +118,23 @@ async def github_webhook(
     # Check for trigger label
     labels = [l.get("name", "") for l in issue_data.get("labels", []) if isinstance(l, dict)]
     if AGENT_TRIGGER_LABEL not in labels:
-        return JSONResponse(
-            {
-                "status": "ignored",
-                "reason": f"label '{AGENT_TRIGGER_LABEL}' not present",
-            }
-        )
+        return JSONResponse({
+            "status": "ignored",
+            "reason": f"label '{AGENT_TRIGGER_LABEL}' not present",
+        })
 
     # ── Idempotency check — don't re-run for same issue ───────────────────────
     repo = RunRepository()
     existing = await repo.get_active_run(repo_full_name, issue_number)
     if existing:
         run_id_val = str(getattr(existing, "run_id", "unknown"))
-        log.info("webhook.duplicate_ignored", issue=issue_number, run_id=run_id_val)
-        return JSONResponse(
-            {
-                "status": "ignored",
-                "reason": "run already active",
-                "run_id": run_id_val,
-            }
-        )
+        log.info("webhook.duplicate_ignored",
+                 issue=issue_number, run_id=run_id_val)
+        return JSONResponse({
+            "status": "ignored",
+            "reason": "run already active",
+            "run_id": run_id_val,
+        })
 
     # ── Enqueue job ───────────────────────────────────────────────────────────
     job_id = await enqueue_issue_job(
@@ -151,7 +143,8 @@ async def github_webhook(
         delivery_id=delivery_id,
     )
 
-    log.info("webhook.job_enqueued", job_id=job_id, issue=issue_number, repo=repo_full_name)
+    log.info("webhook.job_enqueued",
+             job_id=job_id, issue=issue_number, repo=repo_full_name)
 
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,

@@ -1,7 +1,6 @@
 """
 tests/unit/test_filesystem.py — Tests for file loading, BM25 search, and token budget.
 """
-
 from __future__ import annotations
 
 import os
@@ -21,7 +20,6 @@ from src.tools.filesystem import (
 
 # ── Language Detection ────────────────────────────────────────────────────────
 
-
 class TestLanguageMap:
     def test_python_detected(self) -> None:
         assert LANGUAGE_MAP[".py"] == "python"
@@ -36,7 +34,6 @@ class TestLanguageMap:
 
 
 # ── Token Counting ────────────────────────────────────────────────────────────
-
 
 class TestTokenCounting:
     def test_empty_returns_zero(self) -> None:
@@ -53,7 +50,6 @@ class TestTokenCounting:
 
 
 # ── Symbol Extraction ─────────────────────────────────────────────────────────
-
 
 class TestSymbolExtraction:
     def test_extracts_function_names(self) -> None:
@@ -81,7 +77,6 @@ class TestSymbolExtraction:
 
 
 # ── BM25 Tokenizer ────────────────────────────────────────────────────────────
-
 
 class TestBM25Tokenizer:
     def test_lowercase(self) -> None:
@@ -111,14 +106,17 @@ class TestBM25Tokenizer:
 
 # ── Load File Contexts (with real temp files) ─────────────────────────────────
 
-
 class TestLoadFileContexts:
     @pytest.fixture
     def temp_repo(self, tmp_path: Path) -> Path:
         """Create a temp directory with sample Python files."""
         (tmp_path / "src").mkdir()
-        (tmp_path / "src" / "utils.py").write_text("def helper(x: int) -> int:\n    return x * 2\n")
-        (tmp_path / "src" / "service.py").write_text("class MyService:\n    def run(self):\n        pass\n")
+        (tmp_path / "src" / "utils.py").write_text(
+            "def helper(x: int) -> int:\n    return x * 2\n"
+        )
+        (tmp_path / "src" / "service.py").write_text(
+            "class MyService:\n    def run(self):\n        pass\n"
+        )
         return tmp_path
 
     @pytest.mark.asyncio
@@ -197,7 +195,6 @@ class TestLoadFileContexts:
 
 
 # ── Repo Tree ─────────────────────────────────────────────────────────────────
-
 
 class TestListRepoTree:
     @pytest.mark.asyncio
@@ -298,9 +295,7 @@ class TestSearchFilesBm25:
             assert ".venv/ignored.py" not in results
 
             # Exclude works
-            results_excluded = await find_relevant_files(
-                "owner/repo", query="get_user_by_id", exclude=["src/user_service.py"]
-            )
+            results_excluded = await find_relevant_files("owner/repo", query="get_user_by_id", exclude=["src/user_service.py"])
             assert "src/user_service.py" not in results_excluded
 
             # Read error handling during search
@@ -309,22 +304,15 @@ class TestSearchFilesBm25:
                 assert res_err == []
 
             # Empty corpus returns empty
-            empty_results = await find_relevant_files(
-                "owner/repo",
-                query="something",
-                exclude=[
-                    "src/user_service.py",
-                    "src/order_service.py",
-                    "src/payment_service.py",
-                    "src/catalog_service.py",
-                ],
-            )
+            empty_results = await find_relevant_files("owner/repo", query="something", exclude=[
+                "src/user_service.py", "src/order_service.py", "src/payment_service.py", "src/catalog_service.py"
+            ])
             assert empty_results == []
 
             # 2-file small corpus (score == 0 fallback)
-            small_results = await find_relevant_files(
-                "owner/repo", query="get_user_by_id", exclude=["src/payment_service.py", "src/catalog_service.py"]
-            )
+            small_results = await find_relevant_files("owner/repo", query="get_user_by_id", exclude=[
+                "src/payment_service.py", "src/catalog_service.py"
+            ])
             assert "src/user_service.py" in small_results
 
     @pytest.mark.asyncio

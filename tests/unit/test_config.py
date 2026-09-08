@@ -7,8 +7,14 @@ from src.config import Settings
 
 class TestSettings:
     def test_fix_postgres_scheme_handles_legacy_schemes(self) -> None:
-        assert Settings.fix_postgres_scheme("postgres://user:pass@db/app") == "postgresql+asyncpg://user:pass@db/app"
-        assert Settings.fix_postgres_scheme("postgresql://user:pass@db/app") == "postgresql+asyncpg://user:pass@db/app"
+        assert (
+            Settings.fix_postgres_scheme("postgres://user:pass@db/app")
+            == "postgresql+asyncpg://user:pass@db/app"
+        )
+        assert (
+            Settings.fix_postgres_scheme("postgresql://user:pass@db/app")
+            == "postgresql+asyncpg://user:pass@db/app"
+        )
 
     def test_github_token_value_returns_secret_value(self) -> None:
         settings = Settings.model_construct(
@@ -30,7 +36,6 @@ class TestSettings:
 
     def test_invalidate_settings_cache(self) -> None:
         from src.config import get_settings, invalidate_settings_cache
-
         settings_1 = get_settings()
         invalidate_settings_cache()
         settings_2 = get_settings()

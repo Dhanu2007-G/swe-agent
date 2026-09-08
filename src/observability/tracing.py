@@ -3,7 +3,6 @@ src/observability/tracing.py — Logging, tracing, and metrics configuration.
 Configures structlog for JSON output, OTEL for distributed traces,
 and Prometheus for custom agent metrics.
 """
-
 from __future__ import annotations
 
 import logging
@@ -56,7 +55,6 @@ SANDBOX_EXECUTION_TIME = Histogram(
 
 # ── Logging Configuration ─────────────────────────────────────────────────────
 
-
 def configure_logging(level: str = "INFO", fmt: str = "json") -> None:
     """
     Configure structlog for structured JSON output in production,
@@ -76,8 +74,7 @@ def configure_logging(level: str = "INFO", fmt: str = "json") -> None:
         renderer = structlog.dev.ConsoleRenderer(colors=True)  # type: ignore[assignment]
 
     structlog.configure(
-        processors=shared_processors
-        + [
+        processors=shared_processors + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
@@ -109,11 +106,9 @@ def configure_logging(level: str = "INFO", fmt: str = "json") -> None:
 
 # ── OpenTelemetry ─────────────────────────────────────────────────────────────
 
-
 def configure_tracing() -> None:
     """Configure OTEL tracing if endpoint is configured."""
     from src.config import get_settings
-
     settings = get_settings()
 
     if not settings.otel_exporter_otlp_endpoint:
@@ -126,13 +121,11 @@ def configure_tracing() -> None:
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        resource = Resource.create(
-            {
-                "service.name": "swe-agent",
-                "service.version": "1.0.0",
-                "deployment.environment": settings.app_env,
-            }
-        )
+        resource = Resource.create({
+            "service.name": "swe-agent",
+            "service.version": "1.0.0",
+            "deployment.environment": settings.app_env,
+        })
 
         provider = TracerProvider(resource=resource)
         exporter = OTLPSpanExporter(
@@ -154,14 +147,12 @@ def get_tracer(name: str) -> Any:
     """Get a tracer for manual instrumentation."""
     try:
         from opentelemetry import trace
-
         return trace.get_tracer(name)
     except ImportError:
         return None
 
 
 # ── Metrics Recording ─────────────────────────────────────────────────────────
-
 
 async def record_run_metrics(final_state: dict[str, Any]) -> None:
     """Record Prometheus metrics after a run completes."""
@@ -192,8 +183,9 @@ async def record_run_metrics(final_state: dict[str, Any]) -> None:
     tokens = final_state.get("total_tokens_used", 0)
     if tokens:
         from src.config import get_settings
-
-        AGENT_TOKENS_USED.labels(model=get_settings().anthropic_model).observe(tokens)
+        AGENT_TOKENS_USED.labels(
+            model=get_settings().anthropic_model
+        ).observe(tokens)
 
 
 def increment_active_runs() -> None:

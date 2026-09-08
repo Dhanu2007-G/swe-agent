@@ -2,7 +2,6 @@
 src/tools/sandbox.py — Ephemeral Docker container for safe code execution.
 Every run gets a fresh container. No network. Read-only repo. CPU+mem limited.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +36,6 @@ class ApplyResult:
 
 
 # ── Sandbox Provider Abstraction ──────────────────────────────────────────────
-
 
 class SandboxProvider(ABC):
     """Abstract interface for execution sandboxes (Docker daemon, Kubernetes, MicroVMs)."""
@@ -174,7 +172,6 @@ class DockerSandboxProvider(SandboxProvider):
 
         if workspace_path is not None:
             import shutil
-
             try:
                 await loop.run_in_executor(
                     None,
@@ -218,11 +215,12 @@ class CloudSandboxProvider(SandboxProvider):
         log.info("sandbox.cloud_cleanup", run_id=run_id)
         if workspace_path is not None:
             import shutil
-
             shutil.rmtree(workspace_path, ignore_errors=True)
 
 
-async def _build_authenticated_clone_kwargs_async(repo_full_name: str, settings: Any) -> dict[str, Any]:
+async def _build_authenticated_clone_kwargs_async(
+    repo_full_name: str, settings: Any
+) -> dict[str, Any]:
     """Helper to build clone kwargs with authentication."""
     token = getattr(settings, "github_token_value", getattr(settings, "github_token", ""))
     url = f"https://{token}@github.com/{repo_full_name}.git"
@@ -295,8 +293,7 @@ class SandboxRunner:
             self._container,
             "short_id",
             getattr(self._container, "get", lambda k, d=None: self.run_id)("run_id", self.run_id)
-            if isinstance(self._container, dict)
-            else self.run_id,
+            if isinstance(self._container, dict) else self.run_id
         )
         log.info("sandbox.started", run_id=self.run_id, container_id=str(cid))
 
@@ -318,7 +315,9 @@ class SandboxRunner:
 
         s = self._settings
         temp_dir = Path(tempfile.mkdtemp(prefix=f"swe-agent-{self.run_id[:8]}-"))
-        clone_kwargs = await _build_authenticated_clone_kwargs_async(self.repo_full_name, s)
+        clone_kwargs = await _build_authenticated_clone_kwargs_async(
+            self.repo_full_name, s
+        )
 
         url = clone_kwargs.pop(
             "url",
@@ -337,10 +336,13 @@ class SandboxRunner:
                 **clone_kwargs,
             ),
         )
-        log.info("sandbox.repo_cloned", run_id=self.run_id, path=str(temp_dir))
+        log.info("sandbox.repo_cloned", run_id=self.run_id,
+                 path=str(temp_dir))
         return temp_dir
 
-    async def apply_patches(self, patches: list[object]) -> ApplyResult:
+    async def apply_patches(
+        self, patches: list[object]
+    ) -> ApplyResult:
         """
         Apply unified diffs to the workspace.
         Rolls back ALL changes on first failure to keep workspace clean.
@@ -361,7 +363,8 @@ class SandboxRunner:
 
             success, error = await self._exec_patch(patch_content)
             if not success:
-                log.error("sandbox.patch_failed", file=file_path, error=error, run_id=self.run_id)
+                log.error("sandbox.patch_failed", file=file_path,
+                          error=error, run_id=self.run_id)
                 # Roll back via git checkout
                 await self._exec_in_container("git checkout -- .")
                 return ApplyResult(success=False, error=error)
@@ -379,7 +382,9 @@ class SandboxRunner:
 
             # Write patch file
             write_cmd = f"cat > {patch_filename}"
-            exit_code, output = await self._exec_in_container(write_cmd, stdin=unified_diff.encode())
+            exit_code, output = await self._exec_in_container(
+                write_cmd, stdin=unified_diff.encode()
+            )
 
             # Apply via patch command (--forward to avoid reverse-apply errors)
             apply_cmd = (
@@ -417,7 +422,7 @@ class SandboxRunner:
         for pkg in packages:
             # Normalize package name for import check (replace - with _)
             import_name = pkg.split("==")[0].split(">=")[0].replace("-", "_").lower()
-            check_cmd = f'python -c "import {import_name}" 2>/dev/null && echo OK || echo MISSING'
+            check_cmd = f"python -c \"import {import_name}\" 2>/dev/null && echo OK || echo MISSING"
             _, out = await self._exec_in_container(check_cmd)
             if b"MISSING" in out:
                 missing.append(pkg)
@@ -473,7 +478,8 @@ class SandboxRunner:
             timed_out = True
             exit_code = 1
             raw_output = b"TIMEOUT: Tests exceeded time limit"
-            log.warning("sandbox.test_timeout", run_id=self.run_id, timeout=effective_timeout)
+            log.warning("sandbox.test_timeout", run_id=self.run_id,
+                        timeout=effective_timeout)
 
         duration = time.monotonic() - start
 
@@ -488,7 +494,9 @@ class SandboxRunner:
         # Try to parse JSON report for rich results if python
         json_report_str = "{}"
         if ecosystem == "python":
-            _, json_output = await self._exec_in_container("cat /tmp/test-results.json 2>/dev/null || echo '{}'")
+            _, json_output = await self._exec_in_container(
+                "cat /tmp/test-results.json 2>/dev/null || echo '{}'"
+            )
             json_report_str = json_output.decode(errors="replace")
 
         return _parse_test_results(
@@ -514,7 +522,6 @@ class SandboxRunner:
 
 
 # ── Ecosystem & Command Helpers ───────────────────────────────────────────────
-
 
 def _detect_test_ecosystem(test_command: str) -> str:
     """Detect test runner ecosystem (python, javascript, go, rust)."""
@@ -556,7 +563,6 @@ def _build_ecosystem_command(test_command: str, ecosystem: str) -> str:
 
 # ── Result Parsers ────────────────────────────────────────────────────────────
 
-
 def _parse_jest_vitest_output(raw_output: str, exit_code: int, duration: float) -> TestResult:
     """Parse Jest / Vitest JSON or CLI output into a TestResult."""
     failures: list[TestFailure] = []
@@ -578,17 +584,15 @@ def _parse_jest_vitest_output(raw_output: str, exit_code: int, duration: float) 
                     if assertion.get("status") in ("failed", "error"):
                         title = assertion.get("title") or assertion.get("fullName") or "unknown_test"
                         msgs = "\n".join(assertion.get("failureMessages", []))
-                        failures.append(
-                            TestFailure(
-                                test_id=title,
-                                test_name=title.split(">")[-1].strip(),
-                                error_message=msgs[:500] or "Test assertion failed",
-                                traceback=msgs,
-                                error_category=_infer_error_category(msgs),
-                            )
-                        )
+                        failures.append(TestFailure(
+                            test_id=title,
+                            test_name=title.split(">")[-1].strip(),
+                            error_message=msgs[:500] or "Test assertion failed",
+                            traceback=msgs,
+                            error_category=_infer_error_category(msgs),
+                        ))
         except Exception:
-            log.warning("sandbox.jest_json_parse_failed")
+            pass
 
     if not total_count and not failures:
         # Fallback to CLI regex matching
@@ -602,15 +606,13 @@ def _parse_jest_vitest_output(raw_output: str, exit_code: int, duration: float) 
 
         for fail_match in re.finditer(r"(?:FAIL|✕)\s+([^\n]+)", raw_output):
             name = fail_match.group(1).strip()
-            failures.append(
-                TestFailure(
-                    test_id=name,
-                    test_name=name.split(" ")[-1],
-                    error_message=f"JavaScript/TypeScript test failed: {name}",
-                    traceback=raw_output[:1000],
-                    error_category=_infer_error_category(raw_output),
-                )
-            )
+            failures.append(TestFailure(
+                test_id=name,
+                test_name=name.split(" ")[-1],
+                error_message=f"JavaScript/TypeScript test failed: {name}",
+                traceback=raw_output[:1000],
+                error_category=_infer_error_category(raw_output),
+            ))
 
     passed = (exit_code == 0) and (total_failed == 0) and (len(failures) == 0)
     return TestResult(
@@ -657,28 +659,24 @@ def _parse_go_test_output(raw_output: str, exit_code: int, duration: float) -> T
     if is_json:
         for tname in list(failed_tests.keys()):
             full_msg = "".join(failed_tests[tname]).strip()
-            failures.append(
-                TestFailure(
-                    test_id=tname,
-                    test_name=tname,
-                    error_message=full_msg[:500] or "Go test failed",
-                    traceback=full_msg,
-                    error_category=_infer_error_category(full_msg),
-                )
-            )
+            failures.append(TestFailure(
+                test_id=tname,
+                test_name=tname,
+                error_message=full_msg[:500] or "Go test failed",
+                traceback=full_msg,
+                error_category=_infer_error_category(full_msg),
+            ))
     else:
         # Fallback to plain go test output
         for match in re.finditer(r"--- FAIL:\s+([^\s]+)\s+\(([^\)]+)\)", raw_output):
             tname = match.group(1)
-            failures.append(
-                TestFailure(
-                    test_id=tname,
-                    test_name=tname,
-                    error_message=f"Go test {tname} failed",
-                    traceback=raw_output[:1000],
-                    error_category=_infer_error_category(raw_output),
-                )
-            )
+            failures.append(TestFailure(
+                test_id=tname,
+                test_name=tname,
+                error_message=f"Go test {tname} failed",
+                traceback=raw_output[:1000],
+                error_category=_infer_error_category(raw_output),
+            ))
             failed_count += 1
 
     passed = (exit_code == 0) and (failed_count == 0) and (len(failures) == 0)
@@ -705,15 +703,13 @@ def _parse_cargo_test_output(raw_output: str, exit_code: int, duration: float) -
 
     for fail_match in re.finditer(r"----\s+([^\s]+)\s+stdout\s+----", raw_output):
         tname = fail_match.group(1)
-        failures.append(
-            TestFailure(
-                test_id=tname,
-                test_name=tname,
-                error_message=f"Rust test {tname} failed",
-                traceback=raw_output[:1000],
-                error_category=_infer_error_category(raw_output),
-            )
-        )
+        failures.append(TestFailure(
+            test_id=tname,
+            test_name=tname,
+            error_message=f"Rust test {tname} failed",
+            traceback=raw_output[:1000],
+            error_category=_infer_error_category(raw_output),
+        ))
 
     passed = (exit_code == 0) and (failed_count == 0) and (len(failures) == 0)
     return TestResult(
@@ -755,15 +751,13 @@ def _parse_test_results(
         if test.get("outcome") in ("failed", "error"):
             call_info = test.get("call", {})
             longrepr = call_info.get("longrepr", "") or ""
-            failures.append(
-                TestFailure(
-                    test_id=test.get("nodeid", ""),
-                    test_name=test.get("nodeid", "").split("::")[-1],
-                    error_message=longrepr[:500],
-                    traceback=longrepr,
-                    error_category=_infer_error_category(longrepr),
-                )
-            )
+            failures.append(TestFailure(
+                test_id=test.get("nodeid", ""),
+                test_name=test.get("nodeid", "").split("::")[-1],
+                error_message=longrepr[:500],
+                traceback=longrepr,
+                error_category=_infer_error_category(longrepr),
+            ))
 
     # Extract coverage from summary if available
     coverage_pct = 0.0
@@ -800,17 +794,17 @@ def _parse_raw_pytest_output(output: str, exit_code: int, duration: float) -> Te
 
     # Extract individual failure blocks
     failures: list[TestFailure] = []
-    failure_blocks = re.findall(r"FAILED (.+?) - (.+?)(?=\nFAILED|\nERROR|\n=====|$)", output, re.DOTALL)
+    failure_blocks = re.findall(
+        r"FAILED (.+?) - (.+?)(?=\nFAILED|\nERROR|\n=====|$)", output, re.DOTALL
+    )
     for test_id, error_msg in failure_blocks[:10]:
-        failures.append(
-            TestFailure(
-                test_id=test_id.strip(),
-                test_name=test_id.strip().split("::")[-1],
-                error_message=error_msg.strip()[:300],
-                traceback=error_msg.strip(),
-                error_category=_infer_error_category(error_msg),
-            )
-        )
+        failures.append(TestFailure(
+            test_id=test_id.strip(),
+            test_name=test_id.strip().split("::")[-1],
+            error_message=error_msg.strip()[:300],
+            traceback=error_msg.strip(),
+            error_category=_infer_error_category(error_msg),
+        ))
 
     return TestResult(
         passed=exit_code == 0 and total_failed == 0 and total_errors == 0,

@@ -2,7 +2,6 @@
 src/agent/graph.py — LangGraph state machine assembly.
 The graph is compiled once at startup and reused across runs (thread-safe).
 """
-
 from __future__ import annotations
 
 from functools import lru_cache
@@ -31,13 +30,12 @@ log = structlog.get_logger(__name__)
 
 # ── Routing Functions ─────────────────────────────────────────────────────────
 
-
 def route_after_read(
     state: AgentState,
 ) -> Literal["plan", "__end__"]:
     """Route after read_issue node. If ambiguous, terminates early."""
     if state.get("status") == RunStatus.FAILED.value:
-        return END  # type: ignore[return-value]
+        return END
     return "plan"
 
 
@@ -65,30 +63,23 @@ def route_after_test(
 
 # ── Graph Builder ─────────────────────────────────────────────────────────────
 
-
 async def _wrap_read_issue(state: AgentState) -> dict[str, Any]:
     return await nodes.read_issue_node(state)
-
 
 async def _wrap_plan(state: AgentState) -> dict[str, Any]:
     return await nodes.plan_node(state)
 
-
 async def _wrap_code(state: AgentState) -> dict[str, Any]:
     return await nodes.code_node(state)
-
 
 async def _wrap_test(state: AgentState) -> dict[str, Any]:
     return await nodes.test_node(state)
 
-
 async def _wrap_correct(state: AgentState) -> dict[str, Any]:
     return await nodes.correct_node(state)
 
-
 async def _wrap_open_pr(state: AgentState) -> dict[str, Any]:
     return await nodes.open_pr_node(state)
-
 
 async def _wrap_fail(state: AgentState) -> dict[str, Any]:
     return await nodes.fail_node(state)
@@ -159,7 +150,6 @@ async def get_compiled_graph(checkpointer: AsyncPostgresSaver | None = None) -> 
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 
-
 async def run_agent(
     initial_state: AgentState,
     checkpointer: AsyncPostgresSaver | None = None,
@@ -187,12 +177,14 @@ async def run_agent(
         },
     }
 
-    log.info("agent.run_start", run_id=run_id, issue=issue.issue_number if issue else None)
+    log.info("agent.run_start", run_id=run_id,
+             issue=issue.issue_number if issue else None)
 
     try:
         final_state: AgentState = await graph.ainvoke(initial_state, config=config)
     except Exception as e:
-        log.error("agent.run_exception", run_id=run_id, error=str(e), exc_info=True)
+        log.error("agent.run_exception", run_id=run_id, error=str(e),
+                  exc_info=True)
         raise
 
     status = final_state.get("status", RunStatus.FAILED.value)
@@ -202,11 +194,11 @@ async def run_agent(
         "agent.run_complete",
         run_id=run_id,
         status=status,
-        pr_url=pr.get("pr_url") if pr else None,  # type: ignore[attr-defined]
+        pr_url=pr.get("pr_url") if pr else None,
         retries=final_state.get("retry_count", 0),
         tokens=final_state.get("total_tokens_used", 0),
     )
 
-    await record_run_metrics(final_state)  # type: ignore[arg-type]
+    await record_run_metrics(final_state)
 
     return final_state

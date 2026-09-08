@@ -2,7 +2,6 @@
 src/agent/prompts.py — All LLM prompts, versioned and testable.
 Prompts are pure strings — no logic. Tested separately in tests/unit/test_prompts.py.
 """
-
 from __future__ import annotations
 
 

@@ -34,7 +34,9 @@ def install_fake_otel(monkeypatch: pytest.MonkeyPatch) -> tuple[ModuleType, Magi
     otel_module = ModuleType("opentelemetry")
     otel_module.trace = trace_module
 
-    exporter_module = ModuleType("opentelemetry.exporter.otlp.proto.grpc.trace_exporter")
+    exporter_module = ModuleType(
+        "opentelemetry.exporter.otlp.proto.grpc.trace_exporter"
+    )
     exporter_module.OTLPSpanExporter = MagicMock(return_value="exporter")
 
     resource_module = ModuleType("opentelemetry.sdk.resources")
@@ -199,16 +201,14 @@ class TestMetrics:
             patch.object(tracing, "AGENT_TOKENS_USED", tokens),
             patch("src.config.get_settings", return_value=settings),
         ):
-            await tracing.record_run_metrics(
-                {
-                    "status": "succeeded",
-                    "issue": issue,
-                    "retry_count": 2,
-                    "started_at": "2026-03-29T10:00:00",
-                    "completed_at": "2026-03-29T10:00:05",
-                    "total_tokens_used": 1234,
-                }
-            )
+            await tracing.record_run_metrics({
+                "status": "succeeded",
+                "issue": issue,
+                "retry_count": 2,
+                "started_at": "2026-03-29T10:00:00",
+                "completed_at": "2026-03-29T10:00:05",
+                "total_tokens_used": 1234,
+            })
 
         runs_total.labels.return_value.inc.assert_called_once()
         retries.labels.return_value.observe.assert_called_once_with(2)
@@ -222,15 +222,13 @@ class TestMetrics:
         duration = MagicMock()
 
         with patch.object(tracing, "AGENT_RUN_DURATION", duration):
-            await tracing.record_run_metrics(
-                {
-                    "status": "failed",
-                    "issue": None,
-                    "retry_count": 0,
-                    "started_at": "not-a-date",
-                    "completed_at": "still-not-a-date",
-                }
-            )
+            await tracing.record_run_metrics({
+                "status": "failed",
+                "issue": None,
+                "retry_count": 0,
+                "started_at": "not-a-date",
+                "completed_at": "still-not-a-date",
+            })
 
         duration.labels.return_value.observe.assert_not_called()
 

@@ -2,7 +2,6 @@
 src/config.py — Production configuration via Pydantic Settings.
 All secrets sourced from environment. No hardcoded values.
 """
-
 from __future__ import annotations
 
 import secrets
@@ -38,7 +37,7 @@ class Settings(BaseSettings):
     anthropic_max_retries: int = Field(default=3, ge=0, le=10)
 
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-3.6-flash"
+    gemini_model: str = "gemini-1.5-pro"
 
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o"

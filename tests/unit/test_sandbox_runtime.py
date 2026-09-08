@@ -26,7 +26,12 @@ def make_settings() -> SimpleNamespace:
 
 @contextmanager
 def case_dir(prefix: str) -> Path:
-    root = Path(__file__).resolve().parents[2] / "test_out" / "sandbox_cases" / f"{prefix}-{uuid4().hex}"
+    root = (
+        Path(__file__).resolve().parents[2]
+        / "test_out"
+        / "sandbox_cases"
+        / f"{prefix}-{uuid4().hex}"
+    )
     root.mkdir(parents=True, exist_ok=False)
     try:
         yield root

@@ -2,7 +2,6 @@
 tests/evals/eval_runner.py — Evaluation harness against a golden issue set.
 Run in CI to track solve rate, latency, and token cost over time.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -155,7 +154,6 @@ GOLDEN_CASES: list[EvalCase] = [
 
 # ── Eval Runner ───────────────────────────────────────────────────────────────
 
-
 async def run_eval(case: EvalCase, dry_run: bool = False) -> EvalResult:
     """Run a single eval case against the real agent (or mock in dry_run)."""
     start = time.monotonic()
@@ -307,7 +305,8 @@ def print_eval_table(summary: EvalSummary) -> None:
         )
 
     console.print(table)
-    console.print(f"\n[bold]Solve rate:[/bold] {summary.solve_rate_pct:.1f}%  ({summary.passed}/{summary.total})")
+    console.print(f"\n[bold]Solve rate:[/bold] {summary.solve_rate_pct:.1f}%  "
+                  f"({summary.passed}/{summary.total})")
     console.print(f"[bold]Avg retries:[/bold] {summary.avg_retries:.1f}")
     console.print(f"[bold]Avg duration:[/bold] {summary.avg_duration_seconds:.1f}s")
     console.print(f"[bold]Avg tokens:[/bold] {summary.avg_tokens:,.0f}")
@@ -320,24 +319,21 @@ if __name__ == "__main__":
         dry_run: bool = typer.Option(False, help="Run without real API calls"),
         concurrency: int = typer.Option(2, help="Max concurrent eval cases"),
     ) -> None:
-        summary = asyncio.run(run_all_evals(max_concurrent=concurrency, dry_run=dry_run))
+        summary = asyncio.run(
+            run_all_evals(max_concurrent=concurrency, dry_run=dry_run)
+        )
         print_eval_table(summary)
 
         # Write results to file for CI tracking
         results_file = Path("eval-results.json")
-        results_file.write_text(
-            json.dumps(
-                {
-                    "timestamp": summary.timestamp,
-                    "solve_rate_pct": summary.solve_rate_pct,
-                    "total": summary.total,
-                    "passed": summary.passed,
-                    "avg_retries": summary.avg_retries,
-                    "avg_tokens": summary.avg_tokens,
-                },
-                indent=2,
-            )
-        )
+        results_file.write_text(json.dumps({
+            "timestamp": summary.timestamp,
+            "solve_rate_pct": summary.solve_rate_pct,
+            "total": summary.total,
+            "passed": summary.passed,
+            "avg_retries": summary.avg_retries,
+            "avg_tokens": summary.avg_tokens,
+        }, indent=2))
 
         if summary.solve_rate_pct < 50.0:
             raise SystemExit(f"Eval failed: solve rate {summary.solve_rate_pct:.1f}% < 50%")

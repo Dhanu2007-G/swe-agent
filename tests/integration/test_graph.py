@@ -4,7 +4,6 @@ All external boundaries (LLM, Docker, GitHub) are mocked.
 These tests verify the full state machine wiring, routing logic,
 and state propagation — not individual node behaviour.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -33,14 +32,14 @@ from src.agent.state import (
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
-
 @pytest.fixture
 def issue() -> GithubIssue:
     return GithubIssue(
         issue_number=101,
         repo_full_name="acme/backend",
         title="Fix: divide-by-zero in compute_ratio()",
-        body="When `denominator` is 0, `compute_ratio()` raises ZeroDivisionError. Should return 0.0 instead.",
+        body="When `denominator` is 0, `compute_ratio()` raises ZeroDivisionError. "
+             "Should return 0.0 instead.",
         labels=["bug", "agent-fix"],
         comments=[],
         linked_prs=[],
@@ -124,7 +123,9 @@ def bad_patch() -> CodePatch:
 
 @pytest.fixture
 def passing_tests() -> TestResult:
-    return TestResult(passed=True, total=5, failed_count=0, coverage_pct=91.0, duration_seconds=1.2)
+    return TestResult(
+        passed=True, total=5, failed_count=0, coverage_pct=91.0, duration_seconds=1.2
+    )
 
 
 @pytest.fixture
@@ -160,7 +161,6 @@ def mock_pr() -> PullRequest:
 
 # ─── Happy Path: Issue → Passing Tests → PR ──────────────────────────────────
 
-
 class TestHappyPath:
     @pytest.mark.asyncio
     async def test_full_run_succeeds_first_attempt(
@@ -189,7 +189,6 @@ class TestHappyPath:
             _mock_open_pr(mock_pr),
         ):
             from src.agent.graph import run_agent
-
             final = await run_agent(initial_state)
 
         assert final["status"] == RunStatus.SUCCEEDED
@@ -237,7 +236,6 @@ class TestHappyPath:
             _mock_open_pr(mock_pr),
         ):
             from src.agent.graph import run_agent
-
             final = await run_agent(initial_state)
 
         assert final["status"] == RunStatus.SUCCEEDED
@@ -269,8 +267,10 @@ class TestHappyPath:
             _mock_read_issue(status=RunStatus.RUNNING),
             _mock_plan(plan),
             _mock_code(bad_patch),
-            patch("src.agent.nodes.test_node", side_effect=AsyncMock(return_value={"test_result": failing_tests})),
-            patch("src.agent.nodes.correct_node", side_effect=_make_correct_side_effect(bad_patch)),
+            patch("src.agent.nodes.test_node",
+                  side_effect=AsyncMock(return_value={"test_result": failing_tests})),
+            patch("src.agent.nodes.correct_node",
+                  side_effect=_make_correct_side_effect(bad_patch)),
             _mock_open_pr(draft_pr, is_draft=True),
             patch("src.config.get_settings") as mock_settings,
         ):
@@ -279,7 +279,6 @@ class TestHappyPath:
             mock_settings.return_value.anthropic_model = "claude-opus-4-6"
 
             from src.agent.graph import run_agent
-
             final = await run_agent(initial_state)
 
         assert final["status"] in (RunStatus.PARTIAL, RunStatus.FAILED)
@@ -287,10 +286,11 @@ class TestHappyPath:
 
 # ─── Abort Path: Ambiguous Issue ─────────────────────────────────────────────
 
-
 class TestAbortPaths:
     @pytest.mark.asyncio
-    async def test_aborts_on_ambiguous_issue(self, issue: GithubIssue) -> None:
+    async def test_aborts_on_ambiguous_issue(
+        self, issue: GithubIssue
+    ) -> None:
         """
         read_issue returns FAILED → graph routes to END without planning.
         """
@@ -312,7 +312,6 @@ class TestAbortPaths:
             patch("src.agent.nodes.plan_node", side_effect=_mock_plan),
         ):
             from src.agent.graph import run_agent
-
             final = await run_agent(initial_state)
 
         assert final["status"] == RunStatus.FAILED
@@ -320,7 +319,6 @@ class TestAbortPaths:
 
 
 # ─── State Propagation Tests ──────────────────────────────────────────────────
-
 
 class TestStatePropagation:
     @pytest.mark.asyncio
@@ -335,7 +333,9 @@ class TestStatePropagation:
         """run_id set in read_issue must be present in every subsequent node's state."""
         observed_run_ids: list[str] = []
 
-        original_code = __import__("src.agent.nodes", fromlist=["code_node"]).code_node
+        original_code = __import__(
+            "src.agent.nodes", fromlist=["code_node"]
+        ).code_node
 
         async def _capturing_code(state: AgentState) -> dict:
             observed_run_ids.append(state.get("run_id", "MISSING"))
@@ -355,7 +355,6 @@ class TestStatePropagation:
             _mock_open_pr(mock_pr),
         ):
             from src.agent.graph import run_agent
-
             final = await run_agent(initial_state)
 
         assert all(rid == "test-run-xyz" for rid in observed_run_ids), (
@@ -409,14 +408,14 @@ class TestStatePropagation:
             _mock_open_pr(mock_pr),
         ):
             from src.agent.graph import run_agent
-
             await run_agent(initial_state)
 
-        assert history_sizes == [0], "First correction should see empty history, got: {history_sizes}"
+        assert history_sizes == [0], (
+            "First correction should see empty history, got: {history_sizes}"
+        )
 
 
 # ─── Helpers: context managers that patch individual nodes ────────────────────
-
 
 def _mock_read_issue(
     status: RunStatus = RunStatus.RUNNING,
@@ -431,28 +430,24 @@ def _mock_read_issue(
             "started_at": datetime.now(timezone.utc).isoformat(),
             "total_tokens_used": 0,
         }
-
     return patch("src.agent.nodes.read_issue_node", side_effect=_impl)
 
 
 def _mock_plan(plan: TaskPlan) -> Any:
     async def _impl(state: AgentState) -> dict:
         return {"plan": plan, "current_task_index": 0}
-
     return patch("src.agent.nodes.plan_node", side_effect=_impl)
 
 
 def _mock_code(patch_obj: CodePatch) -> Any:
     async def _impl(state: AgentState) -> dict:
         return {"code_patch": patch_obj, "file_contexts": []}
-
     return patch("src.agent.nodes.code_node", side_effect=_impl)
 
 
 def _mock_test(result: TestResult) -> Any:
     async def _impl(state: AgentState) -> dict:
         return {"test_result": result}
-
     return patch("src.agent.nodes.test_node", side_effect=_impl)
 
 
@@ -466,7 +461,6 @@ def _mock_correct(patch_obj: CodePatch) -> Any:
             "attempt_history": prev + [{"attempt": retry}],
             "last_error_category": "logic_error",
         }
-
     return patch("src.agent.nodes.correct_node", side_effect=_impl)
 
 
@@ -477,7 +471,6 @@ def _mock_open_pr(pr: PullRequest, is_draft: bool = False) -> Any:
             "status": RunStatus.PARTIAL.value if is_draft else RunStatus.SUCCEEDED.value,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
-
     return patch("src.agent.nodes.open_pr_node", side_effect=_impl)
 
 
@@ -491,5 +484,4 @@ def _make_correct_side_effect(patch_obj: CodePatch) -> Any:
             "attempt_history": prev + [{"attempt": retry}],
             "last_error_category": "logic_error",
         }
-
     return AsyncMock(side_effect=_impl)

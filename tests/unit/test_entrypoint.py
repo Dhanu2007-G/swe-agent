@@ -64,7 +64,9 @@ class TestMain:
             log_format="json",
             redis_job_timeout=120,
         )
-        entrypoint_path = Path(__file__).resolve().parents[2] / "src" / "worker" / "entrypoint.py"
+        entrypoint_path = (
+            Path(__file__).resolve().parents[2] / "src" / "worker" / "entrypoint.py"
+        )
 
         with (
             patch.dict(sys.modules, {"rq": fake_rq, "rq.timeouts": fake_timeouts}),

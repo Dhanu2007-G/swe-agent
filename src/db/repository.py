@@ -2,7 +2,6 @@
 src/db/repository.py — Repository pattern for all DB operations.
 Keeps SQLAlchemy out of business logic. All methods async.
 """
-
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -52,11 +51,15 @@ class RunRepository:
 
     async def get_run(self, run_id: str) -> AgentRun | None:
         async for session in get_session():
-            result = await session.execute(select(AgentRun).where(AgentRun.run_id == run_id))
+            result = await session.execute(
+                select(AgentRun).where(AgentRun.run_id == run_id)
+            )
             return result.scalar_one_or_none()
         return None
 
-    async def get_active_run(self, repo_full_name: str, issue_number: int) -> AgentRun | None:
+    async def get_active_run(
+        self, repo_full_name: str, issue_number: int
+    ) -> AgentRun | None:
         """Check if an active (running/queued) run exists for this issue."""
         async for session in get_session():
             result = await session.execute(
@@ -93,7 +96,11 @@ class RunRepository:
             values["started_at"] = started_at
 
         async for session in get_session():
-            await session.execute(update(AgentRun).where(AgentRun.run_id == run_id).values(**values))
+            await session.execute(
+                update(AgentRun)
+                .where(AgentRun.run_id == run_id)
+                .values(**values)
+            )
             log.info("db.run_updated", run_id=run_id, status=status)
 
     async def list_runs(

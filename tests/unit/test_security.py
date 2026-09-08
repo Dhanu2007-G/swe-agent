@@ -19,7 +19,10 @@ def _make_request(
     path: str = "/api/ping",
     headers: dict[str, str] | None = None,
 ) -> Request:
-    raw_headers = [(name.lower().encode("ascii"), value.encode("ascii")) for name, value in (headers or {}).items()]
+    raw_headers = [
+        (name.lower().encode("ascii"), value.encode("ascii"))
+        for name, value in (headers or {}).items()
+    ]
     scope = {
         "type": "http",
         "http_version": "1.1",
@@ -58,7 +61,9 @@ class TestSecurityHeadersMiddleware:
 
         assert result.headers["X-Request-ID"] == "req-123"
         assert result.headers["Content-Security-Policy"] == _CSP_POLICY
-        assert result.headers["Strict-Transport-Security"] == ("max-age=63072000; includeSubDomains; preload")
+        assert result.headers["Strict-Transport-Security"] == (
+            "max-age=63072000; includeSubDomains; preload"
+        )
         assert result.headers["X-Content-Type-Options"] == "nosniff"
         assert result.headers["X-Frame-Options"] == "DENY"
         assert "server" not in result.headers

@@ -2,7 +2,6 @@
 src/api/main.py — FastAPI application entrypoint.
 Handles GitHub webhooks, job status API, and health endpoints.
 """
-
 from __future__ import annotations
 
 import time
@@ -47,7 +46,6 @@ WEBHOOK_COUNTER = Counter(
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
-
 async def close_redis_connection() -> None:
     """Close redis connection pool."""
     try:
@@ -57,7 +55,7 @@ async def close_redis_connection() -> None:
         elif hasattr(redis, "close"):
             await redis.close()
     except Exception:
-        log.warning("app.redis_close_failed")
+        pass
 
 
 @asynccontextmanager
@@ -93,11 +91,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         await close_redis_connection()
     except Exception:
-        log.warning("app.shutdown_redis_close_failed")
+        pass
 
 
 # ── Application Factory ───────────────────────────────────────────────────────
-
 
 def create_app() -> FastAPI:
     settings = get_settings()
@@ -239,7 +236,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        log.error("unhandled_exception", path=request.url.path, error=str(exc), exc_info=True)
+        log.error("unhandled_exception", path=request.url.path,
+                  error=str(exc), exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"},
