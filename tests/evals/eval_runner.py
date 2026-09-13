@@ -59,98 +59,39 @@ class EvalSummary:
 
 # ── Golden Issue Set ──────────────────────────────────────────────────────────
 
-GOLDEN_CASES: list[EvalCase] = [
-    EvalCase(
-        id="eval-001",
-        repo="pallets/flask",
-        issue_number=5478,
-        description="Fix missing return type annotation in route decorators",
-        expected_files_modified=["src/flask/app.py"],
-        expected_keywords_in_diff=["-> None", "def route"],
-        max_retries_expected=1,
-    ),
-    EvalCase(
-        id="eval-002",
-        repo="psf/requests",
-        issue_number=6462,
-        description="Handle ConnectionError in retry logic",
-        expected_files_modified=["requests/adapters.py"],
-        expected_keywords_in_diff=["ConnectionError", "retry"],
-        max_retries_expected=2,
-    ),
-    EvalCase(
-        id="eval-003",
-        repo="encode/httpx",
-        issue_number=2756,
-        description="Add timeout parameter validation",
-        expected_files_modified=["httpx/_config.py"],
-        expected_keywords_in_diff=["ValueError", "timeout"],
-        max_retries_expected=1,
-    ),
-    EvalCase(
-        id="eval-004",
-        repo="tiangolo/fastapi",
-        issue_number=10984,
-        description="Fix missing 422 response in OpenAPI schema for query params",
-        expected_files_modified=["fastapi/routing.py"],
-        expected_keywords_in_diff=["422", "responses"],
-        max_retries_expected=2,
-    ),
-    EvalCase(
-        id="eval-005",
-        repo="pydantic/pydantic",
-        issue_number=8972,
-        description="Fix model_validator not called on None field",
-        expected_files_modified=["pydantic/main.py"],
-        expected_keywords_in_diff=["model_validator", "None"],
-        max_retries_expected=2,
-    ),
-    EvalCase(
-        id="eval-006",
-        repo="sqlalchemy/sqlalchemy",
-        issue_number=10234,
-        description="Fix async session not committing on context exit",
-        expected_files_modified=["lib/sqlalchemy/ext/asyncio/session.py"],
-        expected_keywords_in_diff=["__aexit__", "commit"],
-        max_retries_expected=3,
-    ),
-    EvalCase(
-        id="eval-007",
-        repo="celery/celery",
-        issue_number=8765,
-        description="Fix task retry countdown not respected",
-        expected_files_modified=["celery/app/task.py"],
-        expected_keywords_in_diff=["countdown", "retry"],
-        max_retries_expected=2,
-    ),
-    EvalCase(
-        id="eval-008",
-        repo="aio-libs/aiohttp",
-        issue_number=7890,
-        description="Handle cancelled futures in connector cleanup",
-        expected_files_modified=["aiohttp/connector.py"],
-        expected_keywords_in_diff=["CancelledError", "cleanup"],
-        max_retries_expected=2,
-    ),
-    EvalCase(
-        id="eval-009",
-        repo="pytest-dev/pytest",
-        issue_number=11345,
-        description="Fix fixture scope not propagating to sub-fixtures",
-        expected_files_modified=["src/_pytest/fixtures.py"],
-        expected_keywords_in_diff=["scope", "fixture"],
-        max_retries_expected=2,
-    ),
-    EvalCase(
-        id="eval-010",
-        repo="django/django",
-        issue_number=35123,
-        description="Fix migration autodetector missing index change",
-        expected_files_modified=["django/db/migrations/autodetector.py"],
-        expected_keywords_in_diff=["Index", "detect"],
-        max_retries_expected=3,
-    ),
-]
+
+def _load_golden_cases() -> list[EvalCase]:
+    """Load eval cases from golden_issues.json (next to this file).
+
+    Separating benchmark data from code allows adding/editing cases without
+    touching Python source or re-running linters/formatters.
+    """
+    if not GOLDEN_ISSUES_FILE.exists():
+        log.error(
+            "eval.golden_issues_missing",
+            path=str(GOLDEN_ISSUES_FILE),
+            hint="Run: cp tests/evals/golden_issues.json.example tests/evals/golden_issues.json",
+        )
+        return []
+
+    raw = json.loads(GOLDEN_ISSUES_FILE.read_text(encoding="utf-8"))
+    cases: list[EvalCase] = []
+    for entry in raw:
+        cases.append(
+            EvalCase(
+                id=entry["id"],
+                repo=entry["repo"],
+                issue_number=entry["issue_number"],
+                description=entry["description"],
+                expected_files_modified=entry["expected_files_modified"],
+                expected_keywords_in_diff=entry["expected_keywords_in_diff"],
+                max_retries_expected=entry.get("max_retries_expected", 2),
+            )
+        )
+    return cases
+
+
+GOLDEN_CASES: list[EvalCase] = _load_golden_cases()
 
 
 # ── Eval Runner ───────────────────────────────────────────────────────────────

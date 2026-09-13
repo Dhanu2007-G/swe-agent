@@ -80,17 +80,33 @@ def _create_docker_container_sync(
     repo_full_name: str,
     settings: Any,
 ) -> Any:
-    """Create a hardened Docker container synchronously."""
+    """Create a hardened Docker container synchronously.
+
+    Security posture:
+    - Root filesystem is read-only (read_only=True). Only the workspace
+      volume and a small /tmp tmpfs are writeable.
+    - No network access (network_disabled=True by default).
+    - All Linux capabilities dropped (cap_drop=ALL).
+    - no-new-privileges prevents privilege escalation via setuid binaries.
+    - Non-root user is defined in the sandbox Dockerfile (USER sandboxuser).
+    - Workspace is a fresh per-run tempdir on the host, isolated per run_id.
+    """
     return client.containers.create(
         image=settings.sandbox_image,
         command="sleep infinity",
         detach=True,
         remove=False,
         volumes={
+            # Per-run ephemeral workspace: the ONLY host path mounted.
+            # rw is required so the agent can apply patches and write test output.
             str(workspace_path): {
                 "bind": settings.sandbox_workspace_dir,
                 "mode": "rw",
             }
+        },
+        tmpfs={
+            # Allow the process to write temp files without a writeable root FS.
+            "/tmp": "size=64m,noexec,nosuid,nodev",
         },
         working_dir=settings.sandbox_workspace_dir,
         network_disabled=settings.sandbox_network_disabled,
@@ -99,7 +115,9 @@ def _create_docker_container_sync(
         cpu_period=100_000,
         security_opt=["no-new-privileges"],
         cap_drop=["ALL"],
-        read_only=False,
+        # Root filesystem is read-only; the workspace volume and /tmp tmpfs
+        # are the only writeable surfaces inside the container.
+        read_only=True,
         environment={
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",

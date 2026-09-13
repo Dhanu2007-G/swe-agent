@@ -248,6 +248,7 @@ class GitHubClient:
         """
         Validate GitHub webhook HMAC-SHA256 signature.
         Constant-time comparison to prevent timing attacks.
+        The secret is sourced exclusively from environment/settings — never hardcoded.
         """
         if not signature_header or not signature_header.startswith("sha256="):
             return False
@@ -255,14 +256,12 @@ class GitHubClient:
         received = signature_header.removeprefix("sha256=")
         keys_to_try: list[str] = []
 
+        # Primary: explicit environment variable override
         env_secret = os.environ.get("GITHUB_WEBHOOK_SECRET")
         if env_secret:
             keys_to_try.append(env_secret)
 
-        for test_s in ("test-secret-xyz", "test-webhook-secret"):
-            if test_s not in keys_to_try:
-                keys_to_try.append(test_s)
-
+        # Secondary: configured Pydantic settings (reads from .env / secrets)
         try:
             settings = get_settings()
             sec_val = getattr(settings, "github_webhook_secret_value", None)
@@ -272,6 +271,14 @@ class GitHubClient:
                 keys_to_try.append(sec_val)
         except Exception:
             pass
+
+        if not keys_to_try:
+            # No secret configured — reject all incoming webhooks for safety
+            log.error(
+                "webhook.signature_validation_failed",
+                reason="no_secret_configured",
+            )
+            return False
 
         for key in keys_to_try:
             try:

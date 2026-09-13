@@ -24,12 +24,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-# Set required env vars before importing app
+# Set required env vars before importing app (will be overridden per-test by conftest autouse)
 os.environ.update(
     {
         "ANTHROPIC_API_KEY": "sk-ant-test",
         "GITHUB_TOKEN": "ghp_test",
-        "GITHUB_WEBHOOK_SECRET": "test-secret-xyz",
+        "GITHUB_WEBHOOK_SECRET": "test-webhook-secret",
         "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/test",
         "REDIS_URL": "redis://localhost:6379/1",
         "APP_ENV": "development",
@@ -44,7 +44,8 @@ invalidate_settings_cache()
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-WEBHOOK_SECRET = "test-secret-xyz"
+# Must match conftest.py override_settings fixture value
+WEBHOOK_SECRET = "test-webhook-secret"
 
 
 def _sign(payload: bytes) -> str:

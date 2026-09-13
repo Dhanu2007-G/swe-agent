@@ -66,6 +66,20 @@ class TestWebhookSignatureValidation:
         payload = b"hello"
         assert GitHubClient.validate_webhook_signature(payload, "invalidsig") is False
 
+    def test_no_secret_configured_rejects_all(self) -> None:
+        """When no secret is configured, all webhooks must be rejected for safety."""
+        from src.tools.github import GitHubClient
+
+        payload = b'{"action": "opened"}'
+        # Patch both env and settings so no secret is available
+        with (
+            patch("src.tools.github.os.environ.get", return_value=None),
+            patch("src.tools.github.get_settings", side_effect=Exception("no settings")),
+        ):
+            # Even a correctly-formed sha256= header must fail
+            result = GitHubClient.validate_webhook_signature(payload, "sha256=anyhexvalue")
+            assert result is False
+
     def test_timing_safe_comparison(self, make_signature) -> None:
         """Ensure we use hmac.compare_digest, not ==."""
         import inspect
