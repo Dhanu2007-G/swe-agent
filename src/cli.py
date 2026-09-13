@@ -89,9 +89,27 @@ async def _run_local(repo: str, issue_num: int, dry_run: bool, verbose: bool) ->
         )
         console.print(f"[green]✓[/green] Issue (mock): [bold]{issue_obj.title}[/bold]")
     else:
-        async with GitHubClient() as gh:
-            issue_obj = await gh.get_issue(repo, issue_num)
-        console.print(f"[green]✓[/green] Issue: [bold]{issue_obj.title}[/bold]")
+        try:
+            async with GitHubClient() as gh:
+                issue_obj = await gh.get_issue(repo, issue_num)
+            console.print(f"[green]✓[/green] Issue: [bold]{issue_obj.title}[/bold]")
+        except Exception as exc:
+            msg = (
+                f"[bold red]Failed to fetch GitHub issue #{issue_num} from {repo}[/bold red]\n\n"
+                f"[yellow]Error:[/yellow] {exc}\n\n"
+                "[cyan]Tip:[/cyan] If you are running locally without real GitHub credentials "
+                "or offline, run with [bold green]--dry-run[/bold green]:\n\n"
+                f"    [bold]python3 -m src.cli run {repo} {issue_num} --dry-run[/bold]\n\n"
+                "Or ensure a valid [bold]GITHUB_TOKEN[/bold] is set in your [bold].env[/bold] file."
+            )
+            console.print(
+                Panel(
+                    msg,
+                    title="GitHub API Error",
+                    border_style="red",
+                )
+            )
+            return
 
     initial_state: AgentState = {
         "issue": issue_obj,

@@ -45,8 +45,9 @@ def detect_repo_ecosystem(repo_dir: Path | str) -> RepoEcosystem:
       2. Go (go.mod)
       3. JavaScript / TypeScript (package.json, tsconfig.json, lockfiles)
       4. Java (pom.xml, build.gradle)
-      5. Python (pyproject.toml, setup.py, requirements.txt)
-      6. Default fallback: Python / pytest
+      5. C / C++ (CMakeLists.txt)
+      6. Python (pyproject.toml, setup.py, requirements.txt)
+      7. Default fallback: Python / pytest
     """
     root = Path(repo_dir)
 
@@ -136,7 +137,18 @@ def detect_repo_ecosystem(repo_dir: Path | str) -> RepoEcosystem:
             manifest_files=["build.gradle"],
         )
 
-    # 5. Python
+    # 5. C / C++ (CMakeLists.txt)
+    cmake_lists = root / "CMakeLists.txt"
+    if cmake_lists.exists():
+        log.info("detector.ecosystem_found", ecosystem="cpp", root=str(root))
+        return RepoEcosystem(
+            language="cpp",
+            test_command="ctest --output-on-failure",
+            package_manager="cmake",
+            manifest_files=["CMakeLists.txt"],
+        )
+
+    # 6. Python
     py_manifests = []
     for f_name in ("pyproject.toml", "setup.py", "requirements.txt", "Pipfile"):
         if (root / f_name).exists():

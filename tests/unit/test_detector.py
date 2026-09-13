@@ -101,6 +101,15 @@ def test_detect_java_gradle(tmp_path: Path) -> None:
     assert eco.package_manager == "gradle"
 
 
+def test_detect_cpp(tmp_path: Path) -> None:
+    (tmp_path / "CMakeLists.txt").write_text("cmake_minimum_required(VERSION 3.14)\n")
+    eco = detect_repo_ecosystem(tmp_path)
+    assert eco.language == "cpp"
+    assert eco.test_command == "ctest --output-on-failure"
+    assert eco.package_manager == "cmake"
+    assert "CMakeLists.txt" in eco.manifest_files
+
+
 def test_detect_python_manifests(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'pytest'\n")
     (tmp_path / "requirements.txt").write_text("pytest\n")

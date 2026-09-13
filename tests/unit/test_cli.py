@@ -97,6 +97,25 @@ class TestRunCommand:
             await cli._run_local("owner/repo", 42, False, False)
 
         assert mock_print.call_count >= 3
+ 
+    @pytest.mark.asyncio
+    async def test_run_local_non_dry_run_github_failure(self) -> None:
+        from src import cli
+
+        github_client = AsyncMock()
+        github_client.__aenter__.return_value = github_client
+        github_client.__aexit__.return_value = None
+        github_client.get_issue.side_effect = RuntimeError("Network error")
+
+        with (
+            patch("src.config.get_settings"),
+            patch("src.observability.tracing.configure_logging"),
+            patch("src.tools.github.GitHubClient", return_value=github_client),
+            patch("src.cli.console.print") as mock_print,
+        ):
+            await cli._run_local("owner/repo", 42, False, False)
+
+        assert mock_print.call_count >= 1
 
 
 class TestStatusCommand:

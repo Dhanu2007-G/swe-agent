@@ -7,15 +7,19 @@ from __future__ import annotations
 
 import secrets
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AnyHttpUrl, Field, PostgresDsn, RedisDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(_ENV_FILE, ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -51,15 +55,19 @@ class Settings(BaseSettings):
     langchain_project: str = "swe-agent-prod"
 
     # ── GitHub ───────────────────────────────────────────────────────────────
-    github_token: SecretStr
-    github_webhook_secret: SecretStr
+    github_token: SecretStr = Field(default_factory=lambda: SecretStr("ghp_dev_placeholder_token"))
+    github_webhook_secret: SecretStr = Field(
+        default_factory=lambda: SecretStr("dev-webhook-secret-local-only")
+    )
     github_app_id: int | None = None
     github_app_private_key: SecretStr | None = None
     github_bot_username: str = "swe-agent[bot]"
     github_pr_label: str = "automated-pr"
 
     # ── Database ─────────────────────────────────────────────────────────────
-    database_url: PostgresDsn
+    database_url: PostgresDsn = Field(
+        default=PostgresDsn("postgresql+asyncpg://dev_user:dev_pass@localhost:5432/swe_agent_dev")
+    )
     database_pool_size: int = Field(default=10, ge=2, le=50)
     database_max_overflow: int = Field(default=20, ge=0, le=100)
     database_echo: bool = False
@@ -136,7 +144,7 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Cached singleton. Call invalidate_settings_cache() in tests."""
-    return Settings()  # type: ignore[call-arg]
+    return Settings()
 
 
 def invalidate_settings_cache() -> None:
