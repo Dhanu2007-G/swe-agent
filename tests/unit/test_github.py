@@ -562,6 +562,125 @@ class TestRetryAndPatchHelpers:
             gh_repo.create_label.assert_called_once_with("agent-fix", "0075ca")
 
     @pytest.mark.asyncio
+    async def test_create_pull_request_auto_forks_when_no_push_permission(self) -> None:
+        from src.tools.github import GitHubClient
+
+        gh_pr = SimpleNamespace(
+            number=101,
+            html_url="https://github.com/upstream/repo/pull/101",
+            add_to_labels=MagicMock(),
+            create_issue_comment=MagicMock(),
+        )
+        gh_fork = SimpleNamespace(
+            name="repo",
+            full_name="mybot/repo",
+            create_git_ref=MagicMock(),
+        )
+        gh_user = SimpleNamespace(
+            login="mybot",
+            create_fork=MagicMock(return_value=gh_fork),
+        )
+        gh_repo = SimpleNamespace(
+            name="repo",
+            permissions=SimpleNamespace(push=False),
+            get_branch=MagicMock(
+                return_value=SimpleNamespace(name="main", commit=SimpleNamespace(sha="deadbeef"))
+            ),
+            default_branch="main",
+            get_labels=MagicMock(return_value=["agent-fix"]),
+            create_pull=MagicMock(return_value=gh_pr),
+        )
+        gh_instance = SimpleNamespace(
+            get_repo=MagicMock(return_value=gh_repo),
+            get_user=MagicMock(return_value=gh_user),
+        )
+
+        with (
+            patch("src.tools.github.get_settings", return_value=make_settings()),
+            patch("src.tools.github.git.Repo.clone_from") as mock_clone,
+        ):
+            mock_repo_obj = MagicMock()
+            mock_clone.return_value = mock_repo_obj
+            client = GitHubClient()
+            client._gh = gh_instance
+
+            pr = await client.create_pull_request(
+                repo_full_name="upstream/repo",
+                branch_name="agent/fix-fork",
+                title="Fix bug in upstream",
+                body="Fixed in fork",
+                issue_number=55,
+                labels=["agent-fix"],
+            )
+
+            assert pr.pr_number == 101
+            gh_user.create_fork.assert_called_once_with(gh_repo)
+            mock_repo_obj.create_remote.assert_called_once()
+            gh_repo.create_pull.assert_called_once()
+            assert gh_repo.create_pull.call_args[1]["head"] == "mybot:agent/fix-fork"
+
+    @pytest.mark.asyncio
+    async def test_create_pull_request_auto_fork_handles_exceptions(self) -> None:
+        from src.tools.github import GitHubClient
+
+        gh_pr = SimpleNamespace(
+            number=102,
+            html_url="https://github.com/upstream/repo/pull/102",
+            add_to_labels=MagicMock(),
+            create_issue_comment=MagicMock(),
+        )
+
+        class RepoWithFaultyPerms:
+            name = "repo"
+            default_branch = "main"
+
+            @property
+            def permissions(self):
+                raise RuntimeError("Permissions API error")
+
+            def get_branch(self, name):
+                return SimpleNamespace(commit=SimpleNamespace(sha="deadbeef"))
+
+            def get_labels(self):
+                return []
+
+            def create_label(self, *args):
+                pass
+
+            def create_pull(self, **kwargs):
+                return gh_pr
+
+            def create_git_ref(self, **kwargs):
+                pass
+
+        gh_user = SimpleNamespace(
+            login="mybot",
+            create_fork=MagicMock(side_effect=RuntimeError("Fork error")),
+        )
+        gh_instance = SimpleNamespace(
+            get_repo=MagicMock(return_value=RepoWithFaultyPerms()),
+            get_user=MagicMock(return_value=gh_user),
+        )
+
+        with (
+            patch("src.tools.github.get_settings", return_value=make_settings()),
+            patch("src.tools.github.git.Repo.clone_from") as mock_clone,
+        ):
+            mock_repo_obj = MagicMock()
+            mock_clone.return_value = mock_repo_obj
+            client = GitHubClient()
+            client._gh = gh_instance
+
+            pr = await client.create_pull_request(
+                repo_full_name="upstream/repo",
+                branch_name="agent/fix-fallback",
+                title="Fix bug fallback",
+                body="Fallback",
+                issue_number=56,
+            )
+            assert pr.pr_number == 102
+
+    @pytest.mark.asyncio
     async def test_with_retry_coroutine_and_plain_value(self) -> None:
         from src.tools.github import GitHubClient
 

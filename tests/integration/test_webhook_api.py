@@ -191,6 +191,22 @@ class TestEventFiltering:
         assert resp.status_code == 200
         assert resp.json()["status"] == "ignored"
 
+    def test_pr_review_comment_event_accepted(self, client: TestClient) -> None:
+        payload = json.dumps(
+            {
+                "action": "created",
+                "pull_request": {"number": 12},
+                "comment": {"body": "Please add validation to avoid crash"},
+                "repository": {"full_name": "acme/backend"},
+            }
+        ).encode()
+        resp = self._post(client, payload, event="pull_request_review_comment")
+        assert resp.status_code == 202
+        data = resp.json()
+        assert data["status"] == "accepted"
+        assert data["event"] == "review_comment"
+        assert data["pr_number"] == 12
+
     def test_issue_closed_action_ignored(self, client: TestClient) -> None:
         payload = _issue_payload(action="closed")
         resp = self._post(client, payload)

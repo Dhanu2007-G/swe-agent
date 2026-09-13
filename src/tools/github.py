@@ -164,9 +164,35 @@ class GitHubClient:
             # Get default branch SHA for branching
             default_sha = gh_repo.get_branch(target_base).commit.sha
 
-            # Create remote branch via API
+            # Check push permissions to target repository
+            has_push = False
             try:
-                gh_repo.create_git_ref(
+                permissions = getattr(gh_repo, "permissions", None)
+                if permissions and getattr(permissions, "push", False):
+                    has_push = True
+            except Exception:
+                has_push = False
+
+            is_fork = False
+            head_ref = branch_name
+            fork_repo_name: str | None = None
+            fork_repo: Any = None
+
+            if not has_push and getattr(settings, "agent_enable_auto_fork", True):
+                try:
+                    user = self._gh.get_user()
+                    fork_repo = user.create_fork(gh_repo)
+                    is_fork = True
+                    fork_repo_name = getattr(fork_repo, "full_name", f"{user.login}/{gh_repo.name}")
+                    head_ref = f"{user.login}:{branch_name}"
+                    log.info("github.fork_created", fork=fork_repo_name, upstream=repo_full_name)
+                except Exception as e:
+                    log.warning("github.fork_attempt_failed", error=str(e))
+
+            # Create remote branch via API on target repo (or fork if not writeable)
+            branch_target = fork_repo if is_fork and fork_repo is not None else gh_repo
+            try:
+                branch_target.create_git_ref(
                     ref=f"refs/heads/{branch_name}",
                     sha=default_sha,
                 )
@@ -204,22 +230,31 @@ class GitHubClient:
                         f"Issue: https://github.com/{repo_full_name}/issues/{issue_number}"
                     )
 
-                # Push
+                # Push: if is_fork, push to the fork remote
                 origin = repo.remote("origin")
-                origin.push(refspec=f"{branch_name}:{branch_name}", force=False)
+                if is_fork and fork_repo_name:
+                    token = settings.github_token_value
+                    fork_url = f"https://x-access-token:{token}@github.com/{fork_repo_name}.git"
+                    repo.create_remote("fork", fork_url)
+                    fork_remote = repo.remote("fork")
+                    fork_remote.push(refspec=f"{branch_name}:{branch_name}", force=False)
+                else:
+                    origin.push(refspec=f"{branch_name}:{branch_name}", force=False)
 
             # Open PR via API
             gh_pr: GHPullRequest = gh_repo.create_pull(
                 title=title,
                 body=body,
-                head=branch_name,
+                head=head_ref,
                 base=target_base,
                 draft=draft,
             )
 
             # Add labels
             if labels:
-                existing = [lbl.name for lbl in gh_repo.get_labels()]
+                existing = [
+                    lbl.name if hasattr(lbl, "name") else str(lbl) for lbl in gh_repo.get_labels()
+                ]
                 for label in labels:
                     if label not in existing:
                         with suppress(GithubException):

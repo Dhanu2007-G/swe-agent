@@ -87,7 +87,12 @@ class Settings(BaseSettings):
     agent_max_retries: int = Field(default=3, ge=1, le=10)
     agent_max_files_in_context: int = Field(default=10, ge=1, le=30)
     agent_max_context_tokens: int = Field(default=100_000, ge=10_000)
+    agent_max_tokens_per_run: int = Field(default=150_000, ge=10_000)
+    agent_max_cost_per_run_usd: float = Field(default=3.00, ge=0.5)
+    agent_enable_auto_fork: bool = True
+    agent_enable_repro_test: bool = True
     agent_pr_draft_on_failure: bool = True
+    sandbox_two_phase_deps: bool = True
 
     # ── Observability ────────────────────────────────────────────────────────
     otel_exporter_otlp_endpoint: str | None = None

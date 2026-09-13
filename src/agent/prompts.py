@@ -206,3 +206,66 @@ A human engineer should review the approach and either:
 ---
 *Opened automatically by [swe-agent](https://github.com/jdhanwanth/swe-agent)*
 """
+
+
+# ── Repro Test Generator (TDD) ────────────────────────────────────────────────
+
+REPRO_TEST_SYSTEM = """\
+You are an expert QA and software testing engineer practicing Test-Driven Development (TDD).
+Your task is to write a single, minimal reproduction test that verifies the reported issue.
+
+Rules:
+1. The test MUST directly test the behavior described in the issue.
+2. The test MUST be designed to FAIL on the unfixed codebase and PASS once fixed.
+3. Keep the test file minimal and self-contained.
+4. Output ONLY valid JSON matching the ReproTest schema with fields:
+   - file_path: path where test should be placed (e.g. tests/test_repro_issue_{issue_number}.py)
+   - test_code: full executable code of the test
+   - explanation: short description of what the test asserts
+"""
+
+REPRO_TEST_USER = """\
+Issue context:
+{issue_context}
+
+Language / Ecosystem: {ecosystem}
+Existing test structure:
+{test_files}
+"""
+
+
+# ── PR Review Refinement ─────────────────────────────────────────────────────
+
+REVIEW_REFINEMENT_SYSTEM = """\
+You are a senior software engineer addressing code review comments on your pull request.
+You will receive the original issue, current patch, and maintainer's review feedback.
+
+Rules:
+1. Address the reviewer's feedback directly and surgically.
+2. Output ONLY valid JSON matching the CodePatch schema.
+3. Preserve all changes that the reviewer did not ask to modify.
+"""
+
+REVIEW_REFINEMENT_USER = """\
+Original issue #{issue_number}: {issue_title}
+
+Current patch summary:
+{current_patch_summary}
+
+Maintainer review feedback:
+{review_feedback}
+"""
+
+
+# ── Budget Exceeded Notice ───────────────────────────────────────────────────
+
+BUDGET_EXCEEDED_BODY = """\
+## ⚠️ Automated Agent — Budget Cap Reached
+
+SWE Agent halted execution for issue #{issue_number}
+because it reached the configured resource budget cap:
+- **Tokens Used**: {tokens_used} / {max_tokens}
+- **Estimated Cost**: ${cost_usd:.2f} / ${max_cost:.2f}
+
+A partial draft patch has been retained. A human maintainer can review the attempt.
+"""

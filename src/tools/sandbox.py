@@ -121,6 +121,9 @@ def _create_docker_container_sync(
         environment={
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
+            "npm_config_cache": "/tmp/.npm",
+            "GOCACHE": "/tmp/go-cache",
+            "CARGO_HOME": "/tmp/cargo",
         },
         labels={
             "swe-agent.run_id": run_id,
@@ -461,6 +464,31 @@ class SandboxRunner:
             )
         else:
             log.info("sandbox.packages_installed", packages=missing)
+
+    async def prepare_ecosystem_dependencies(self, ecosystem: str) -> None:
+        """
+        Prepare dependencies for the given ecosystem.
+        If sandbox network is disabled and two_phase_deps is false, log and skip.
+        """
+        if self._settings.sandbox_network_disabled and not getattr(
+            self._settings, "sandbox_two_phase_deps", False
+        ):
+            log.info("sandbox.prep_skipped_offline", ecosystem=ecosystem)
+            return
+
+        cmd_map = {
+            "python": "pip install --quiet -e . 2>/dev/null || true",
+            "javascript": (
+                "npm ci --prefer-offline 2>/dev/null || "
+                "npm install --prefer-offline 2>/dev/null || true"
+            ),
+            "go": "go mod download 2>/dev/null || true",
+            "rust": "cargo fetch 2>/dev/null || true",
+        }
+        prep_cmd = cmd_map.get(ecosystem)
+        if prep_cmd:
+            log.info("sandbox.preparing_dependencies", ecosystem=ecosystem)
+            await self._exec_in_container(prep_cmd)
 
     async def run_tests(
         self,

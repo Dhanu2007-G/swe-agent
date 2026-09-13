@@ -464,3 +464,34 @@ class TestSandboxRunnerHelpers:
         assert await dummy.create_container(Path("/tmp"), "run", "repo", None) is None
         assert await dummy.exec_command(None, "cmd") is None
         assert await dummy.cleanup(None, None, "run") is None
+
+    @pytest.mark.asyncio
+    async def test_prepare_ecosystem_dependencies(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from src.tools.sandbox import SandboxRunner
+
+        runner = SandboxRunner("owner/repo", "run-prep")
+        runner._container = MagicMock()
+        runner._exec_in_container = AsyncMock(return_value=(0, b"OK"))
+
+        # 1. Skipped when offline and two_phase_deps is False
+        runner._settings = SimpleNamespace(
+            sandbox_network_disabled=True, sandbox_two_phase_deps=False
+        )
+        await runner.prepare_ecosystem_dependencies("python")
+        runner._exec_in_container.assert_not_called()
+
+        # 2. Executed for python, javascript, go, rust when two_phase_deps is True
+        runner._settings = SimpleNamespace(
+            sandbox_network_disabled=True, sandbox_two_phase_deps=True
+        )
+        for eco in ("python", "javascript", "go", "rust"):
+            await runner.prepare_ecosystem_dependencies(eco)
+            assert runner._exec_in_container.called
+
+        # 3. Unknown ecosystem does nothing
+        runner._exec_in_container.reset_mock()
+        await runner.prepare_ecosystem_dependencies("unknown-lang")
+        runner._exec_in_container.assert_not_called()

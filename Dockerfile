@@ -73,19 +73,25 @@ CMD ["uvicorn", "src.api.main:app", \
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Stage 3: Sandbox image (used by Docker-in-Docker execution)
+# Stage 3: Polyglot Multi-Language Sandbox image (Docker execution)
 # ──────────────────────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS sandbox
 
-LABEL org.opencontainers.image.title="SWE Agent Sandbox"
+LABEL org.opencontainers.image.title="SWE Agent Polyglot Sandbox"
 
-# Only what's needed to run Python tests
+# Install system tools plus Node.js, npm, Go, and Rust/Cargo
 RUN apt-get update && apt-get install -y --no-install-recommends \
     patch \
     git \
+    curl \
+    ca-certificates \
+    nodejs \
+    npm \
+    golang-go \
+    cargo \
     && rm -rf /var/lib/apt/lists/*
 
-# Pre-install common test dependencies
+# Pre-install common Python test dependencies
 RUN pip install --no-cache-dir \
     pytest==8.3.0 \
     pytest-asyncio==0.24.0 \
@@ -97,7 +103,7 @@ RUN pip install --no-cache-dir \
 RUN mkdir -p /workspace
 WORKDIR /workspace
 
-# Non-root user in sandbox too
+# Non-root user in sandbox
 RUN groupadd --gid 2001 sandbox && \
     useradd --uid 2001 --gid sandbox --shell /bin/sh sandboxuser
 USER sandboxuser

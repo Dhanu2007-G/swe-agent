@@ -19,6 +19,12 @@ def test_route_after_test():
     assert route_after_test({"test_result": TestResult(True, 100.0)}) == "open_pr"
     assert route_after_test({"test_result": TestResult(False, 0.0), "retry_count": 0}) == "correct"
     assert route_after_test({"test_result": TestResult(False, 0.0), "retry_count": 50}) == "fail"
+    assert (
+        route_after_test(
+            {"test_result": TestResult(False, 0.0), "retry_count": 0, "budget_exceeded": True}
+        )
+        == "fail"
+    )
 
 
 @pytest.mark.asyncio

@@ -70,8 +70,24 @@ async def github_webhook(
     log.info("webhook.received", event_type=event_type, action=action, delivery=delivery_id)
 
     # ── Filter to actionable events ───────────────────────────────────────────
-    if event_type != "issues":
+    if event_type not in ("issues", "pull_request_review_comment"):
         return JSONResponse({"status": "ignored", "reason": f"event type '{event_type}'"})
+
+    if event_type == "pull_request_review_comment":
+        comment = event_data.get("comment", {})
+        body = comment.get("body", "")
+        pr_data = event_data.get("pull_request", {})
+        pr_number = pr_data.get("number", 0)
+        log.info("webhook.pr_review_comment", pr=pr_number, delivery=delivery_id)
+        return JSONResponse(
+            {
+                "status": "accepted",
+                "event": "review_comment",
+                "pr_number": pr_number,
+                "feedback": body[:100],
+            },
+            status_code=status.HTTP_202_ACCEPTED,
+        )
 
     repo_data = event_data.get("repository")
     repo_full_name = repo_data.get("full_name") if isinstance(repo_data, dict) else None

@@ -39,6 +39,7 @@ def route_after_test(
     """
     Route after test node:
     - All tests pass → open_pr
+    - Budget cap exceeded → fail
     - Tests fail & retry limit not reached → correct
     - Tests fail & retry limit reached → fail
     """
@@ -48,6 +49,9 @@ def route_after_test(
 
     if test_result and getattr(test_result, "passed", False):
         return "open_pr"
+
+    if state.get("budget_exceeded", False):
+        return "fail"
 
     if retry_count < settings.agent_max_retries:
         return "correct"

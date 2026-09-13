@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from src.agent.state import (
     AgentState,
@@ -754,3 +758,316 @@ class TestNodeExecutionDeepCoverage:
         ):
             llm_oai = _build_llm()
             assert llm_oai == mock_oai.return_value
+
+    def test_update_tokens_and_budget(self) -> None:
+        from types import SimpleNamespace
+
+        from src.agent.nodes import _update_tokens_and_budget
+
+        s = SimpleNamespace(agent_max_tokens_per_run=1000, agent_max_cost_per_run_usd=1.0)
+        with patch("src.agent.nodes.get_settings", return_value=s):
+            # Normal usage
+            u1 = _update_tokens_and_budget({"total_tokens_used": 200}, 300)
+            assert u1["total_tokens_used"] == 500
+            assert u1["budget_exceeded"] is False
+
+            # Exceeded usage
+            u2 = _update_tokens_and_budget({"total_tokens_used": 900}, 200)
+            assert u2["total_tokens_used"] == 1100
+            assert u2["budget_exceeded"] is True
+
+    @pytest.mark.asyncio
+    async def test_repro_test_node(self, sample_issue: GithubIssue) -> None:
+        from types import SimpleNamespace
+
+        from src.agent.nodes import repro_test_node
+        from src.agent.state import ReproTest
+
+        state: AgentState = {
+            "issue": sample_issue,
+            "run_id": "run-repro",
+            "detected_language": "python",
+        }
+
+        # 1. Disabled
+        s_disabled = SimpleNamespace(agent_enable_repro_test=False)
+        with patch("src.agent.nodes.get_settings", return_value=s_disabled):
+            res_disabled = await repro_test_node(state)
+            assert res_disabled == {}
+
+        # 2. Enabled success
+        s_enabled = SimpleNamespace(
+            agent_enable_repro_test=True,
+            agent_max_tokens_per_run=150000,
+            agent_max_cost_per_run_usd=3.0,
+            llm_provider="anthropic",
+            anthropic_model="test",
+            anthropic_api_key_value="test",
+            anthropic_timeout_seconds=30,
+            anthropic_max_retries=1,
+            anthropic_max_tokens=2048,
+        )
+        mock_repro = ReproTest(
+            file_path="tests/test_repro_issue_42.py",
+            test_code="def test_repro(): assert False",
+            explanation="Verifies the bug",
+        )
+        with (
+            patch("src.agent.nodes.get_settings", return_value=s_enabled),
+            patch("src.tools.filesystem.list_test_files", new_callable=AsyncMock, return_value=[]),
+            patch(
+                "src.agent.nodes._invoke_with_timeout",
+                new_callable=AsyncMock,
+                return_value=mock_repro,
+            ),
+        ):
+            res = await repro_test_node(state)
+            assert res.get("repro_test_code") == "def test_repro(): assert False"
+
+        # 3. LLM error fails gracefully
+        with (
+            patch("src.agent.nodes.get_settings", return_value=s_enabled),
+            patch("src.tools.filesystem.list_test_files", new_callable=AsyncMock, return_value=[]),
+            patch(
+                "src.agent.nodes._invoke_with_timeout",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("LLM error"),
+            ),
+        ):
+            res_err = await repro_test_node(state)
+            assert res_err == {}
+
+    @pytest.mark.asyncio
+    async def test_refine_from_review_node(self, sample_issue: GithubIssue) -> None:
+        from types import SimpleNamespace
+
+        from src.agent.nodes import refine_from_review_node
+        from src.agent.state import CodePatch
+
+        s_enabled = SimpleNamespace(
+            agent_max_tokens_per_run=150000,
+            agent_max_cost_per_run_usd=3.0,
+            llm_provider="anthropic",
+            anthropic_model="test",
+            anthropic_api_key_value="test",
+            anthropic_timeout_seconds=30,
+            anthropic_max_retries=1,
+            anthropic_max_tokens=2048,
+        )
+        state: AgentState = {
+            "issue": sample_issue,
+            "run_id": "run-refine",
+            "code_patch": CodePatch(patches=[], explanation="Initial"),
+            "review_feedback": "Please add null checks",
+        }
+        mock_refined = CodePatch(patches=[], explanation="Refined with checks")
+
+        with (
+            patch("src.agent.nodes.get_settings", return_value=s_enabled),
+            patch(
+                "src.agent.nodes._invoke_with_timeout",
+                new_callable=AsyncMock,
+                return_value=mock_refined,
+            ),
+        ):
+            res = await refine_from_review_node(state)
+            assert res["code_patch"].explanation == "Refined with checks"
+
+    @pytest.mark.asyncio
+    async def test_code_node_bundles_repro_test(
+        self, sample_issue: GithubIssue, sample_plan: TaskPlan
+    ) -> None:
+        from types import SimpleNamespace
+
+        from src.agent.nodes import code_node
+        from src.agent.state import CodePatch
+
+        s = SimpleNamespace(
+            agent_max_files_in_context=10,
+            agent_max_tokens_per_run=150000,
+            agent_max_cost_per_run_usd=3.0,
+            llm_provider="anthropic",
+            anthropic_model="test",
+            anthropic_api_key_value="test",
+            anthropic_timeout_seconds=30,
+            anthropic_max_retries=1,
+            anthropic_max_tokens=2048,
+        )
+        state: AgentState = {
+            "issue": sample_issue,
+            "plan": sample_plan,
+            "run_id": "run-code-repro",
+            "detected_language": "typescript",
+            "repro_test_code": "test('repro', () => { expect(1).toBe(2); });",
+        }
+        mock_patch = CodePatch(patches=[], explanation="Implemented fix")
+
+        with (
+            patch("src.agent.nodes.get_settings", return_value=s),
+            patch("src.tools.search.find_relevant_files", new_callable=AsyncMock, return_value=[]),
+            patch(
+                "src.tools.filesystem.load_file_contexts",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "src.agent.nodes._invoke_with_timeout",
+                new_callable=AsyncMock,
+                return_value=mock_patch,
+            ),
+        ):
+            res = await code_node(state)
+            patches = res["code_patch"].patches
+            assert len(patches) == 1
+            assert "test_repro_issue_42.test.ts" in patches[0].file_path
+
+    @pytest.mark.asyncio
+    async def test_open_pr_node_with_budget_exceeded(self, sample_issue: GithubIssue) -> None:
+        from types import SimpleNamespace
+
+        from src.agent.nodes import open_pr_node
+        from src.agent.state import CodePatch, PullRequest, TestResult
+
+        s = SimpleNamespace(
+            github_pr_label="agent-fix",
+            agent_max_retries=3,
+            agent_max_tokens_per_run=150000,
+            agent_max_cost_per_run_usd=3.0,
+        )
+        mock_pr = PullRequest(
+            pr_number=88,
+            pr_url="https://github.com/owner/repo/pull/88",
+            branch_name="agent-branch",
+            is_draft=False,
+            title="Fix bug",
+            body="Initial body",
+        )
+        state: AgentState = {
+            "issue": sample_issue,
+            "run_id": "run-budget-pr",
+            "code_patch": CodePatch(patches=[], explanation="Patch"),
+            "test_result": TestResult(passed=True),
+            "budget_exceeded": True,
+            "total_tokens_used": 160000,
+            "cumulative_cost_usd": 3.2,
+        }
+
+        with (
+            patch("src.agent.nodes.get_settings", return_value=s),
+            patch(
+                "src.agent.nodes._generate_pr_description",
+                new_callable=AsyncMock,
+                return_value="Base description",
+            ),
+            patch("src.tools.github.GitHubClient") as mock_gh_cls,
+        ):
+            mock_gh = AsyncMock()
+            mock_gh.create_pull_request.return_value = mock_pr
+            mock_gh_cls.return_value.__aenter__.return_value = mock_gh
+
+            res = await open_pr_node(state)
+            assert res["status"] == "succeeded"
+            call_body = mock_gh.create_pull_request.call_args[1]["body"]
+            assert "Budget Cap Reached" in call_body
+
+    @pytest.mark.asyncio
+    async def test_fail_node_with_budget_exceeded(self, sample_issue: GithubIssue) -> None:
+        from types import SimpleNamespace
+
+        from src.agent.nodes import fail_node
+
+        s = SimpleNamespace(agent_max_retries=3, agent_pr_draft_on_failure=False)
+        state: AgentState = {
+            "issue": sample_issue,
+            "run_id": "run-fail-budget",
+            "budget_exceeded": True,
+            "total_tokens_used": 155000,
+            "cumulative_cost_usd": 3.10,
+        }
+        with patch("src.agent.nodes.get_settings", return_value=s):
+            res = await fail_node(state)
+            assert res["status"] == "failed"
+            assert "Budget cap reached" in res["failure_reason"]
+
+    @pytest.mark.asyncio
+    async def test_read_issue_node_with_detected_ecosystem(
+        self, sample_issue: GithubIssue, tmp_path: Path
+    ) -> None:
+        from src.agent.nodes import read_issue_node
+
+        (tmp_path / "go.mod").write_text("module example.com/pkg\n")
+        mock_response = MagicMock()
+        mock_response.content = json.dumps({"can_proceed": True, "blocking_questions": []})
+
+        with (
+            patch(
+                "src.agent.nodes._invoke_with_timeout",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+            patch(
+                "src.tools._repo_cache.get_local_repo_path",
+                new_callable=AsyncMock,
+                return_value=str(tmp_path),
+            ),
+        ):
+            res = await read_issue_node({"issue": sample_issue})
+            assert res["detected_language"] == "go"
+            assert res["detected_test_command"] == "go test ./..."
+
+    @pytest.mark.asyncio
+    async def test_test_node_uses_detected_test_command(self, sample_issue: GithubIssue) -> None:
+        from types import SimpleNamespace
+
+        from src.agent.nodes import test_node
+        from src.agent.state import CodePatch, TestResult
+
+        state: AgentState = {
+            "issue": sample_issue,
+            "run_id": "run-test-cmd",
+            "code_patch": CodePatch(patches=[], explanation="Fix", test_command="pytest"),
+            "detected_test_command": "npm test",
+        }
+        mock_runner = AsyncMock()
+        mock_runner.apply_patches.return_value = SimpleNamespace(success=True, error="")
+        mock_runner.run_tests.return_value = TestResult(passed=True, total=1)
+
+        with patch("src.tools.sandbox.SandboxRunner") as mock_runner_cls:
+            mock_runner_cls.return_value.__aenter__.return_value = mock_runner
+            res = await test_node(state)
+            assert res["test_result"].passed is True
+            mock_runner.run_tests.assert_called_once_with(test_command="npm test")
+
+    @pytest.mark.asyncio
+    async def test_refine_from_review_node_error_raises(self, sample_issue: GithubIssue) -> None:
+        from types import SimpleNamespace
+
+        from src.agent.nodes import refine_from_review_node
+        from src.agent.state import CodePatch
+
+        s_enabled = SimpleNamespace(
+            agent_max_tokens_per_run=150000,
+            agent_max_cost_per_run_usd=3.0,
+            llm_provider="anthropic",
+            anthropic_model="test",
+            anthropic_api_key_value="test",
+            anthropic_timeout_seconds=30,
+            anthropic_max_retries=1,
+            anthropic_max_tokens=2048,
+        )
+        state: AgentState = {
+            "issue": sample_issue,
+            "run_id": "run-refine-err",
+            "code_patch": CodePatch(patches=[], explanation="Initial"),
+            "review_feedback": "Crash feedback",
+        }
+        with (
+            patch("src.agent.nodes.get_settings", return_value=s_enabled),
+            patch(
+                "src.agent.nodes._invoke_with_timeout",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("LLM fail"),
+            ),
+            pytest.raises(RuntimeError, match="LLM fail"),
+        ):
+            await refine_from_review_node(state)

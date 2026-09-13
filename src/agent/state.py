@@ -150,6 +150,15 @@ class CodePatch(BaseModel):
     new_dependencies: list[str] = Field(default_factory=list)
 
 
+class ReproTest(BaseModel):
+    """A minimal reproduction test verifying the reported issue."""
+
+    __test__ = False
+    file_path: str
+    test_code: str
+    explanation: str
+
+
 class TestFailure(BaseModel):
     """A single test failure with full context."""
 
@@ -247,7 +256,19 @@ class AgentState(TypedDict, total=False):
     status: str  # RunStatus value
     failure_reason: str
 
-    # Metadata
+    # Polyglot & Forking
+    detected_language: str
+    detected_test_command: str
+    is_fork: bool
+    fork_repo_full_name: str | None
+
+    # TDD Repro & Feedback
+    repro_test_code: str | None
+    review_feedback: str | None
+
+    # Metadata & Budget
     started_at: str
     completed_at: str
     total_tokens_used: int
+    cumulative_cost_usd: float
+    budget_exceeded: bool

@@ -1,5 +1,5 @@
 """
-src/agent/nodes.py — The 6 nodes of the SWE agent graph.
+src/agent/nodes.py -- The 6 nodes of the SWE agent graph.
 Each node is a pure async function: AgentState -> dict[partial updates].
 Nodes are independently testable and observable via LangSmith.
 """
@@ -24,6 +24,7 @@ from tenacity import (
 )
 
 from src.agent.prompts import (
+    BUDGET_EXCEEDED_BODY,
     CLARIFIER_SYSTEM,
     CLARIFIER_USER,
     CODER_SYSTEM,
@@ -37,13 +38,19 @@ from src.agent.prompts import (
     PLANNER_USER,
     PR_BODY_SYSTEM,
     PR_BODY_USER,
+    REPRO_TEST_SYSTEM,
+    REPRO_TEST_USER,
+    REVIEW_REFINEMENT_SYSTEM,
+    REVIEW_REFINEMENT_USER,
 )
 from src.agent.state import (
     AgentState,
     AttemptRecord,
     CodePatch,
     ErrorCategory,
+    FilePatch,
     GithubIssue,
+    ReproTest,
     RunStatus,
     TaskPlan,
     TestResult,
@@ -113,12 +120,38 @@ async def _invoke_with_timeout(
             )
 
 
+def _update_tokens_and_budget(state: AgentState, tokens_added: int) -> dict[str, Any]:
+    """Calculate cumulative tokens and cost, checking against configured budget caps."""
+    settings = get_settings()
+    current_tokens = state.get("total_tokens_used", 0) + tokens_added
+    # Estimated blended price per token for Claude 3.5 Sonnet ($0.015 / 1k tokens)
+    current_cost = current_tokens * 0.000015
+    max_tokens = getattr(settings, "agent_max_tokens_per_run", 150_000)
+    max_cost = getattr(settings, "agent_max_cost_per_run_usd", 3.00)
+
+    budget_exceeded = current_tokens >= max_tokens or current_cost >= max_cost
+    if budget_exceeded:
+        log.warning(
+            "agent.budget_cap_exceeded",
+            tokens=current_tokens,
+            cost_usd=round(current_cost, 4),
+            max_tokens=max_tokens,
+            max_cost=max_cost,
+        )
+    return {
+        "total_tokens_used": current_tokens,
+        "cumulative_cost_usd": round(current_cost, 4),
+        "budget_exceeded": budget_exceeded,
+    }
+
+
 # ── Node 1: Read Issue ────────────────────────────────────────────────────────
 
 
 async def read_issue_node(state: AgentState) -> dict[str, Any]:
     """
     Validates the issue is implementable. Sets run_id and timestamps.
+    Auto-detects repository language ecosystem and initializes budget tracking.
     Short-circuits if issue is ambiguous and marks status accordingly.
     """
     issue: GithubIssue = state["issue"]
@@ -126,6 +159,18 @@ async def read_issue_node(state: AgentState) -> dict[str, Any]:
     run_id = state.get("run_id") or str(uuid4())
 
     log.info("read_issue.start", run_id=run_id, issue=issue.issue_number, repo=issue.repo_full_name)
+
+    # Detect language ecosystem from local cached repo if available
+    from src.tools._repo_cache import get_local_repo_path
+    from src.tools.detector import detect_repo_ecosystem
+
+    try:
+        repo_dir = await get_local_repo_path(issue.repo_full_name)
+        ecosystem = detect_repo_ecosystem(repo_dir) if repo_dir else None
+    except Exception:
+        ecosystem = None
+    detected_lang = ecosystem.language if ecosystem else "python"
+    detected_test_cmd = ecosystem.test_command if ecosystem else "pytest"
 
     llm = _build_llm(temperature=0.0, max_tokens=512)
 
@@ -142,7 +187,7 @@ async def read_issue_node(state: AgentState) -> dict[str, Any]:
         can_proceed = clarity_data.get("can_proceed", True)
     except (json.JSONDecodeError, Exception) as e:
         log.warning("read_issue.clarifier_failed", error=str(e), run_id=run_id)
-        can_proceed = True  # fail open — attempt the issue
+        can_proceed = True  # fail open -- attempt the issue
 
     updates: dict[str, Any] = {
         "run_id": run_id,
@@ -150,6 +195,10 @@ async def read_issue_node(state: AgentState) -> dict[str, Any]:
         "attempt_history": [],
         "started_at": datetime.now(UTC).isoformat(),
         "total_tokens_used": 0,
+        "cumulative_cost_usd": 0.0,
+        "budget_exceeded": False,
+        "detected_language": detected_lang,
+        "detected_test_command": detected_test_cmd,
     }
 
     if not can_proceed:
@@ -159,7 +208,7 @@ async def read_issue_node(state: AgentState) -> dict[str, Any]:
         return updates
 
     updates["status"] = RunStatus.RUNNING
-    log.info("read_issue.complete", run_id=run_id)
+    log.info("read_issue.complete", run_id=run_id, language=detected_lang)
     return updates
 
 
@@ -212,10 +261,61 @@ async def plan_node(state: AgentState) -> dict[str, Any]:
         elapsed_s=f"{elapsed:.1f}",
     )
 
+    budget_updates = _update_tokens_and_budget(state, 1000)
     return {
         "plan": plan,
         "current_task_index": 0,
+        **budget_updates,
     }
+
+
+# ── Node 2b: Generate Reproduction Test (TDD) ──────────────────────────────────
+
+
+async def repro_test_node(state: AgentState) -> dict[str, Any]:
+    """
+    Generates a minimal reproduction test verifying the reported issue (TDD).
+    Saves the test to state so the coder and sandbox can execute it.
+    """
+    settings = get_settings()
+    if not getattr(settings, "agent_enable_repro_test", True):
+        return {}
+
+    issue: GithubIssue = state["issue"]
+    run_id: str = state["run_id"]
+    detected_lang = state.get("detected_language", "python")
+
+    log.info("repro.start", run_id=run_id, issue=issue.issue_number, lang=detected_lang)
+
+    from src.tools.filesystem import list_test_files
+
+    test_files = await list_test_files(issue.repo_full_name)
+
+    llm = _build_llm(temperature=0.0)
+    structured_llm = llm.with_structured_output(ReproTest)
+
+    messages = [
+        SystemMessage(content=REPRO_TEST_SYSTEM),
+        HumanMessage(
+            content=REPRO_TEST_USER.format(
+                issue_context=issue.to_prompt_context(),
+                ecosystem=detected_lang,
+                test_files="\n".join(test_files[:10]),
+            )
+        ),
+    ]
+
+    try:
+        repro: ReproTest = await _invoke_with_timeout(structured_llm, messages, run_name="repro")
+        log.info("repro.generated", file_path=repro.file_path, run_id=run_id)
+        budget_updates = _update_tokens_and_budget(state, 500)
+        return {
+            "repro_test_code": repro.test_code,
+            **budget_updates,
+        }
+    except Exception as e:
+        log.warning("repro.failed_open", run_id=run_id, error=str(e))
+        return {}
 
 
 # ── Node 3: Code ──────────────────────────────────────────────────────────────
@@ -302,6 +402,24 @@ async def code_node(state: AgentState) -> dict[str, Any]:
         log.error("code.failed", run_id=run_id, error=str(e))
         raise
 
+    budget_updates = _update_tokens_and_budget(state, 2000)
+
+    # If a reproduction test exists, bundle it as a FilePatch so it runs in sandbox
+    repro_code = state.get("repro_test_code")
+    patches_list = list(patch.patches)
+    if repro_code and not any("test_repro" in p.file_path for p in patches_list):
+        ext = ".py" if state.get("detected_language", "python") == "python" else ".test.ts"
+        repro_path = f"tests/test_repro_issue_{issue.issue_number}{ext}"
+        patches_list.append(
+            FilePatch(
+                file_path=repro_path,
+                change_type="create",
+                full_content=repro_code,
+                description="TDD Reproduction test verifying defect",
+            )
+        )
+        patch = patch.model_copy(update={"patches": patches_list})
+
     log.info(
         "code.complete", run_id=run_id, patches=len(patch.patches), tasks_covered=len(plan.tasks)
     )
@@ -309,6 +427,7 @@ async def code_node(state: AgentState) -> dict[str, Any]:
     return {
         "file_contexts": file_contexts,
         "code_patch": patch,
+        **budget_updates,
     }
 
 
@@ -318,6 +437,7 @@ async def code_node(state: AgentState) -> dict[str, Any]:
 async def test_node(state: AgentState) -> dict[str, Any]:
     """
     Applies the patch to the sandbox and runs the test suite.
+    Executes two-phase dependency preparation and uses detected test runners.
     Returns a structured TestResult regardless of outcome.
     """
     from src.tools.sandbox import SandboxRunner
@@ -332,7 +452,11 @@ async def test_node(state: AgentState) -> dict[str, Any]:
         repo_full_name=issue.repo_full_name,
         run_id=run_id,
     ) as sandbox:
-        # Apply patches one by one — atomically roll back on any failure
+        # Prepare dependencies (two-phase execution)
+        detected_lang = state.get("detected_language", "python")
+        await sandbox.prepare_ecosystem_dependencies(detected_lang)
+
+        # Apply patches one by one -- atomically roll back on any failure
         apply_result = await sandbox.apply_patches(patch.patches)
         if not apply_result.success:
             log.warning("test.patch_apply_failed", run_id=run_id, error=apply_result.error)
@@ -348,9 +472,13 @@ async def test_node(state: AgentState) -> dict[str, Any]:
         if patch.new_dependencies:
             await sandbox.install_packages(patch.new_dependencies)
 
-        # Run the test suite
+        # Run the test suite: use patch.test_command or fallback to detected_test_command
+        test_cmd = patch.test_command
+        if test_cmd == "pytest" and state.get("detected_test_command"):
+            test_cmd = state["detected_test_command"]
+
         test_result = await sandbox.run_tests(
-            test_command=patch.test_command,
+            test_command=test_cmd,
         )
 
     log.info(
@@ -438,12 +566,59 @@ async def correct_node(state: AgentState) -> dict[str, Any]:
         patches=len(corrected_patch.patches),
     )
 
+    budget_updates = _update_tokens_and_budget(state, 1500)
     return {
         "code_patch": corrected_patch,
         "retry_count": new_retry_count,
         "attempt_history": updated_history,
         "last_error_category": error_category.value,
+        **budget_updates,
     }
+
+
+# ── Node: Refine From Review ──────────────────────────────────────────────────
+
+
+async def refine_from_review_node(state: AgentState) -> dict[str, Any]:
+    """
+    Refines an existing patch based on human maintainer review comments.
+    """
+    issue: GithubIssue = state["issue"]
+    run_id: str = state["run_id"]
+    current_patch: CodePatch = state.get("code_patch", CodePatch(patches=[], explanation=""))
+    review_feedback: str = state.get("review_feedback") or ""
+
+    log.info("refine.start", run_id=run_id, issue=issue.issue_number)
+
+    patch_summary = "\n".join([f"{p.file_path}: {p.description}" for p in current_patch.patches])
+
+    llm = _build_llm(temperature=0.1)
+    structured_llm = llm.with_structured_output(CodePatch)
+
+    messages = [
+        SystemMessage(content=REVIEW_REFINEMENT_SYSTEM),
+        HumanMessage(
+            content=REVIEW_REFINEMENT_USER.format(
+                issue_number=issue.issue_number,
+                issue_title=issue.title,
+                current_patch_summary=patch_summary,
+                review_feedback=review_feedback,
+            )
+        ),
+    ]
+
+    try:
+        refined_patch: CodePatch = await _invoke_with_timeout(
+            structured_llm, messages, run_name="refine_review"
+        )
+        budget_updates = _update_tokens_and_budget(state, 1500)
+        return {
+            "code_patch": refined_patch,
+            **budget_updates,
+        }
+    except Exception as e:
+        log.error("refine.failed", run_id=run_id, error=str(e))
+        raise
 
 
 # ── Node 6: Open PR ───────────────────────────────────────────────────────────
@@ -452,7 +627,7 @@ async def correct_node(state: AgentState) -> dict[str, Any]:
 async def open_pr_node(state: AgentState) -> dict[str, Any]:
     """
     Generates a PR description, creates the branch, commits patches, and opens the PR.
-    Handles both success PRs and draft failure PRs.
+    Handles both success PRs and draft failure PRs, including cross-repo forks and budget notices.
     """
     from src.tools.github import GitHubClient
 
@@ -481,6 +656,16 @@ async def open_pr_node(state: AgentState) -> dict[str, Any]:
             test_result=test_result,
         )
 
+    # If budget cap was reached, append notice
+    if state.get("budget_exceeded"):
+        pr_body += "\n\n" + BUDGET_EXCEEDED_BODY.format(
+            issue_number=issue.issue_number,
+            tokens_used=state.get("total_tokens_used", 0),
+            max_tokens=getattr(settings, "agent_max_tokens_per_run", 150_000),
+            cost_usd=state.get("cumulative_cost_usd", 0.0),
+            max_cost=getattr(settings, "agent_max_cost_per_run_usd", 3.00),
+        )
+
     # ── Create branch and open PR ─────────────────────────────────────────────
     branch_name = f"swe-agent/issue-{issue.issue_number}-{run_id[:8]}"
 
@@ -489,7 +674,7 @@ async def open_pr_node(state: AgentState) -> dict[str, Any]:
             repo_full_name=issue.repo_full_name,
             branch_name=branch_name,
             base_branch="main",
-            title=f"fix: resolve #{issue.issue_number} — {issue.title[:60]}",
+            title=f"fix: resolve #{issue.issue_number} -- {issue.title[:60]}",
             body=pr_body,
             patches=patch.patches,
             issue_number=issue.issue_number,
@@ -504,6 +689,8 @@ async def open_pr_node(state: AgentState) -> dict[str, Any]:
         "pull_request": pr.model_dump(),
         "status": status.value,
         "completed_at": datetime.now(UTC).isoformat(),
+        "is_fork": getattr(pr, "is_fork", False),
+        "fork_repo_full_name": getattr(pr, "fork_repo_full_name", None),
     }
 
 
@@ -511,7 +698,7 @@ async def open_pr_node(state: AgentState) -> dict[str, Any]:
 
 
 async def fail_node(state: AgentState) -> dict[str, Any]:
-    """Terminal failure node — exhausted retries without a passing patch."""
+    """Terminal failure node -- exhausted retries without a passing patch or budget breached."""
     run_id: str = state["run_id"]
     issue: GithubIssue = state["issue"]
     test_result: TestResult = state.get("test_result", TestResult(passed=False))
@@ -531,9 +718,15 @@ async def fail_node(state: AgentState) -> dict[str, Any]:
         except Exception as e:
             log.error("fail_node.draft_pr_failed", run_id=run_id, error=str(e))
 
+    failure_reason = f"Exhausted {get_settings().agent_max_retries} retries"
+    if state.get("budget_exceeded"):
+        tokens = state.get("total_tokens_used", 0)
+        cost = state.get("cumulative_cost_usd", 0.0)
+        failure_reason = f"Budget cap reached ({tokens} tokens, ${cost:.2f})"
+
     return {
         "status": RunStatus.FAILED.value,
-        "failure_reason": f"Exhausted {get_settings().agent_max_retries} retries",
+        "failure_reason": failure_reason,
         "completed_at": datetime.now(UTC).isoformat(),
     }
 
