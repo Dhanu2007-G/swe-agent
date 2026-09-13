@@ -278,16 +278,22 @@ def _truncate_at_boundary(
             note = f"Truncated after `{symbol.name}` ({remaining_symbols} more symbol(s) omitted)"
             return partial, note
 
-    # No symbol boundary fits — hard truncate by estimating chars per token
+    # No symbol boundary fits — try line-by-line truncation
+    accumulated_lines: list[str] = []
+    for line in lines:
+        test_chunk = "".join(accumulated_lines + [line])
+        if _count_tokens(test_chunk) <= max_tokens:
+            accumulated_lines.append(line)
+        else:
+            break
+
+    if accumulated_lines:
+        return "".join(accumulated_lines), "Hard-truncated to fit token budget"
+
+    # If even a single line doesn't fit, character truncate
     chars_per_token = max(1, len(content) // max(_count_tokens(content), 1))
     char_limit = max_tokens * chars_per_token
-    truncated = content[:char_limit]
-    # Don't cut mid-line
-    last_newline = truncated.rfind("\n")
-    if last_newline > char_limit // 2:
-        truncated = truncated[: last_newline + 1]
-
-    return truncated, "Hard-truncated to fit token budget"
+    return content[:char_limit], "Hard-truncated to fit token budget"
 
 
 # ── Tree-sitter AST Extraction ────────────────────────────────────────────────

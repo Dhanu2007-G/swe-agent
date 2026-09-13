@@ -438,3 +438,28 @@ def test_build_context_from_file_dicts_direct() -> None:
     ]
     res = build_context_from_file_dicts(dicts, "Fix helper", token_limit=5000)
     assert "src/utils.py" in res
+
+
+def test_context_fallback_tokenizer() -> None:
+    from unittest.mock import patch
+
+    from src.agent.context import _get_tokenizer
+
+    with patch("tiktoken.get_encoding", side_effect=Exception("tiktoken error")):
+        fb = _get_tokenizer()
+        assert fb.encode("") == []
+        assert len(fb.encode("hello world")) == 2
+
+
+def test_hard_truncation_single_line_too_large() -> None:
+    from src.agent.context import _truncate_at_boundary
+
+    content = "a" * 100
+    truncated, note = _truncate_at_boundary(
+        content=content,
+        symbols=[],
+        max_tokens=2,
+    )
+    assert "Hard-truncated" in note
+    assert len(truncated) < len(content)
+

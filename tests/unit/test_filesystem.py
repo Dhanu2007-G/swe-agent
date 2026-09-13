@@ -377,3 +377,15 @@ class TestSearchFilesBm25:
         ):
             res = await load_file_contexts("owner/repo", ["unreadable.py"])
             assert res == []
+
+
+def test_filesystem_fallback_tokenizer() -> None:
+    from unittest.mock import patch
+
+    from src.tools.filesystem import _get_tokenizer
+
+    with patch("tiktoken.get_encoding", side_effect=Exception("tiktoken error")):
+        fb = _get_tokenizer()
+        assert fb.encode("") == []
+        assert len(fb.encode("hello world")) == 2
+
