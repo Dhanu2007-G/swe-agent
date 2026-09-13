@@ -2,10 +2,12 @@
 tests/unit/test_context.py — Tests for AST context builder.
 Validates token budget enforcement, symbol extraction, truncation strategies.
 """
+
 from __future__ import annotations
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from src.agent.context import (
     ContextBudget,
@@ -19,7 +21,6 @@ from src.agent.context import (
     _truncate_at_boundary,
     build_context_from_file_dicts,
 )
-
 
 # ── Sample Code ───────────────────────────────────────────────────────────────
 
@@ -54,6 +55,7 @@ async def fetch_data(url: str) -> bytes:
 
 
 # ── Symbol Extraction ─────────────────────────────────────────────────────────
+
 
 class TestSymbolExtraction:
     def test_extracts_class(self) -> None:
@@ -96,6 +98,7 @@ class TestSymbolExtraction:
 
 # ── Token Counting ────────────────────────────────────────────────────────────
 
+
 class TestTokenCounting:
     def test_empty_string_is_zero(self) -> None:
         assert _count_tokens("") == 0
@@ -112,6 +115,7 @@ class TestTokenCounting:
 
 
 # ── Token Budget ──────────────────────────────────────────────────────────────
+
 
 class TestContextBudget:
     def test_fresh_budget_has_full_remaining(self) -> None:
@@ -142,6 +146,7 @@ class TestContextBudget:
 
 # ── Truncation ────────────────────────────────────────────────────────────────
 
+
 class TestTruncation:
     def test_truncates_at_function_boundary(self) -> None:
         symbols = _extract_python_symbols_regex(SAMPLE_PYTHON)
@@ -167,6 +172,16 @@ class TestTruncation:
         assert len(truncated) < len(SAMPLE_PYTHON)
         assert "truncat" in note.lower()
 
+    def test_hard_truncation_newline_boundary(self) -> None:
+        content = "line 1 is a very long line\nline 2 is also here\n"
+        truncated, note = _truncate_at_boundary(
+            content=content,
+            symbols=[],
+            max_tokens=9,
+        )
+        assert "Hard-truncated" in note
+        assert truncated.endswith("\n")
+
     def test_no_truncation_when_budget_sufficient(self) -> None:
         content = "def foo():\n    pass\n"
         symbols = _extract_python_symbols_regex(content)
@@ -185,6 +200,7 @@ class TestTruncation:
 
 
 # ── Context Builder ───────────────────────────────────────────────────────────
+
 
 class TestContextBuilder:
     def test_single_file_renders(self) -> None:
@@ -243,6 +259,7 @@ class TestContextBuilder:
 
 # ── File Context Rendering ────────────────────────────────────────────────────
 
+
 class TestFileContextRendering:
     def test_to_prompt_block_includes_path(self) -> None:
         fc = FileContext(
@@ -281,10 +298,14 @@ class TestFileContextRendering:
 
 class TestContextEdgeCases:
     def test_extract_symbols_ast_treesitter_fallback(self) -> None:
-        from src.agent.context import _extract_symbols_ast
         from unittest.mock import patch
 
-        with patch("src.agent.context._extract_python_symbols_treesitter", side_effect=Exception("parse error")):
+        from src.agent.context import _extract_symbols_ast
+
+        with patch(
+            "src.agent.context._extract_python_symbols_treesitter",
+            side_effect=Exception("parse error"),
+        ):
             syms = _extract_symbols_ast("def foo(): pass", "python")
             assert any(s.name == "foo" for s in syms)
 
@@ -311,7 +332,6 @@ class TestContextEdgeCases:
         assert unknown_syms == []
 
     def test_find_block_end_boundary(self) -> None:
-        from src.agent.context import _find_block_end
 
         assert _find_block_end(["line1", "line2"], 10) == 10
 
@@ -325,10 +345,12 @@ class TestContextEdgeCases:
         assert res is None
 
     def test_apply_token_budget_truncates_at_boundary(self) -> None:
-        from src.agent.context import ContextBudget, _apply_token_budget, Symbol
+        from src.agent.context import ContextBudget, Symbol, _apply_token_budget
 
         budget = ContextBudget(total_limit=150)
-        content = ("class A:\n    '''Docstring'''\n    def m1(self):\n        return 1\n\n" * 20) + "class B:\n    def m2(self):\n        pass\n"
+        content = (
+            "class A:\n    '''Docstring'''\n    def m1(self):\n        return 1\n\n" * 20
+        ) + "class B:\n    def m2(self):\n        pass\n"
         symbols = [
             Symbol(name="A", kind="class", start_line=0, end_line=5, signature="class A:"),
             Symbol(name="B", kind="class", start_line=100, end_line=105, signature="class B:"),
@@ -342,6 +364,7 @@ class TestContextEdgeCases:
             def __init__(self):
                 super().__init__(total_limit=150)
                 self.calls = 0
+
             def consume(self, count: int) -> bool:
                 self.calls += 1
                 if self.calls == 1:
@@ -359,9 +382,11 @@ class TestContextEdgeCases:
         context._TS_PARSER = None
         context._TS_PARSERS.clear()
         try:
-            with patch("importlib.import_module", side_effect=ImportError("no tree sitter")):
-                with pytest.raises(ImportError):
-                    context._get_treesitter_parser("python")
+            with (
+                patch("importlib.import_module", side_effect=ImportError("no tree sitter")),
+                pytest.raises(ImportError),
+            ):
+                context._get_treesitter_parser("python")
         finally:
             context._TS_PARSER = old_parser
             context._TS_PARSERS = old_parsers

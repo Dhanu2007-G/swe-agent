@@ -116,8 +116,9 @@ class TestInvalidateCache:
         mock_rmtree.assert_any_call("path-2", ignore_errors=True)
 
     def test_build_authenticated_clone_kwargs(self) -> None:
-        from src.tools._repo_cache import _build_authenticated_clone_kwargs
         from types import SimpleNamespace
+
+        from src.tools._repo_cache import _build_authenticated_clone_kwargs
 
         settings = SimpleNamespace(github_token_value="ghp_test123")
         res = _build_authenticated_clone_kwargs("owner/repo", settings)

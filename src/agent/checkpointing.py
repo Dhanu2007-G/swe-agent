@@ -6,15 +6,21 @@ Enables:
   - Human-in-the-loop breakpoints (future)
   - Parallel runs without state collision (thread_id isolation)
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from src.config import get_settings
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from langchain_core.runnables import RunnableConfig
 
 log = structlog.get_logger(__name__)
 
@@ -33,11 +39,9 @@ async def get_checkpointer() -> AsyncPostgresSaver:
     settings = get_settings()
 
     # LangGraph expects a sync psycopg connection string (not asyncpg)
-    pg_url = str(settings.database_url).replace(
-        "postgresql+asyncpg://", "postgresql://"
-    )
+    pg_url = str(settings.database_url).replace("postgresql+asyncpg://", "postgresql://")
 
-    _checkpointer = AsyncPostgresSaver.from_conn_string(pg_url)
+    _checkpointer = cast("AsyncPostgresSaver", AsyncPostgresSaver.from_conn_string(pg_url))
     await _checkpointer.setup()  # creates langgraph checkpoint tables
 
     log.info("checkpointer.initialized")
@@ -68,31 +72,36 @@ async def checkpointed_run(run_id: str) -> AsyncIterator[AsyncPostgresSaver]:
         raise
 
 
-async def get_run_state(run_id: str) -> dict | None:
+async def get_run_state(run_id: str) -> dict[str, Any] | None:
     """
     Retrieve the last saved state for a run_id.
     Useful for debugging failed runs or inspecting partial progress.
     """
     cp = await get_checkpointer()
-    config = {"configurable": {"thread_id": run_id}}
+    config = cast("RunnableConfig", {"configurable": {"thread_id": run_id}})
     checkpoint = await cp.aget(config)
     if checkpoint is None:
         return None
-    return checkpoint.get("channel_values", {})
+    res = getattr(checkpoint, "get", lambda k, d=None: d)("channel_values", {})
+    return cast("dict[str, Any] | None", res)
 
 
-async def list_checkpointed_runs(limit: int = 20) -> list[dict]:
+async def list_checkpointed_runs(limit: int = 20) -> list[dict[str, Any]]:
     """List recent runs that have checkpoints (not just DB records)."""
     cp = await get_checkpointer()
     runs = []
-    async for checkpoint_tuple in cp.alist({}):
+    async for checkpoint_tuple in cp.alist(cast("RunnableConfig", {})):
         metadata = checkpoint_tuple.metadata or {}
         config = checkpoint_tuple.config or {}
-        runs.append({
-            "thread_id": config.get("configurable", {}).get("thread_id"),
-            "step": checkpoint_tuple.checkpoint.get("id"),
-            "created_at": metadata.get("created_at"),
-        })
+        runs.append(
+            {
+                "thread_id": config.get("configurable", {}).get("thread_id"),
+                "step": getattr(checkpoint_tuple.checkpoint, "get", lambda k: None)("id")
+                if hasattr(checkpoint_tuple.checkpoint, "get")
+                else None,
+                "created_at": metadata.get("created_at"),
+            }
+        )
         if len(runs) >= limit:
             break
     return runs

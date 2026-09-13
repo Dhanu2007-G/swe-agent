@@ -1,14 +1,13 @@
 """
 tests/conftest.py — Shared pytest fixtures.
 """
+
 from __future__ import annotations
 
-import os
 import pytest
-from unittest.mock import patch
-
 
 # ── Override settings for all tests ──────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def override_settings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -24,9 +23,7 @@ def override_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Invalidate settings cache after patching
     from src.config import invalidate_settings_cache
+
     invalidate_settings_cache()
     yield
     invalidate_settings_cache()
-
-
-

@@ -36,6 +36,7 @@ class TestSettings:
 
     def test_invalidate_settings_cache(self) -> None:
         from src.config import get_settings, invalidate_settings_cache
+
         settings_1 = get_settings()
         invalidate_settings_cache()
         settings_2 = get_settings()

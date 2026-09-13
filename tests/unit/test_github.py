@@ -401,9 +401,7 @@ class TestRetryAndPatchHelpers:
         with case_dir("patch-create") as root:
             _apply_patch_to_worktree(root, patch_file)
 
-            assert (
-                root / "src" / "new_file.py"
-            ).read_text() == "print('hello')\nprint('world')"
+            assert (root / "src" / "new_file.py").read_text() == "print('hello')\nprint('world')"
 
     def test_apply_patch_to_worktree_deletes_files(self) -> None:
         from src.tools.github import _apply_patch_to_worktree
@@ -532,7 +530,9 @@ class TestRetryAndPatchHelpers:
             create_issue_comment=MagicMock(),
         )
         gh_repo = SimpleNamespace(
-            get_branch=MagicMock(return_value=SimpleNamespace(name="main", commit=SimpleNamespace(sha="deadbeef"))),
+            get_branch=MagicMock(
+                return_value=SimpleNamespace(name="main", commit=SimpleNamespace(sha="deadbeef"))
+            ),
             default_branch="main",
             get_labels=MagicMock(return_value=[]),
             create_label=MagicMock(side_effect=GithubException(422, "label exists", None)),
@@ -581,8 +581,10 @@ class TestRetryAndPatchHelpers:
         assert res2 == "plain-value"
 
     def test_validate_webhook_signature_edge_cases(self) -> None:
+        import hashlib
+        import hmac
+
         from src.tools.github import GitHubClient
-        import hmac, hashlib
 
         secret = "custom-sec-123"
         payload = b'{"action":"opened"}'

@@ -1,10 +1,11 @@
 """
 tests/unit/test_watchdog.py — Tests for stuck-run detection and reaping logic.
 """
+
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,7 +30,7 @@ def _make_run(
     run.status = status
     run.repo_full_name = repo
     run.issue_number = issue
-    run.started_at = datetime.now(timezone.utc) - timedelta(minutes=started_minutes_ago)
+    run.started_at = datetime.now(UTC) - timedelta(minutes=started_minutes_ago)
     return run
 
 
@@ -128,10 +129,7 @@ class TestReapStuckRuns:
     @pytest.mark.asyncio
     async def test_multiple_stuck_runs_all_reaped(self) -> None:
         """Multiple stuck runs are all reaped in one cycle."""
-        stuck_runs = [
-            _make_run(run_id=f"run-{i}", started_minutes_ago=90 + i)
-            for i in range(3)
-        ]
+        stuck_runs = [_make_run(run_id=f"run-{i}", started_minutes_ago=90 + i) for i in range(3)]
         results = {"stuck_runs_reaped": 0, "stale_containers_removed": 0, "errors": 0}
 
         with (
@@ -222,9 +220,7 @@ class TestGitHubComment:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client.comment_on_issue = AsyncMock(
-                side_effect=Exception("GitHub API 503")
-            )
+            mock_client.comment_on_issue = AsyncMock(side_effect=Exception("GitHub API 503"))
             mock_client_cls.return_value = mock_client
 
             # Must not raise
@@ -234,8 +230,9 @@ class TestGitHubComment:
 class TestRemoveStaleContainers:
     @pytest.mark.asyncio
     async def test_removes_stale_container_and_handles_api_errors(self) -> None:
-        from src.worker.watchdog import _remove_stale_containers
         import docker
+
+        from src.worker.watchdog import _remove_stale_containers
 
         stale_container = MagicMock()
         stale_container.short_id = "c-123"
@@ -245,7 +242,7 @@ class TestRemoveStaleContainers:
         fresh_container = MagicMock()
         fresh_container.short_id = "c-456"
         fresh_container.labels = {"swe-agent.run_id": "run-fresh"}
-        fresh_container.attrs = {"Created": datetime.now(timezone.utc).isoformat()}
+        fresh_container.attrs = {"Created": datetime.now(UTC).isoformat()}
 
         error_container = MagicMock()
         error_container.short_id = "c-789"
@@ -275,8 +272,9 @@ class TestRemoveStaleContainers:
 
     @pytest.mark.asyncio
     async def test_handles_docker_unavailable_exception(self) -> None:
-        from src.worker.watchdog import _remove_stale_containers
         import docker
+
+        from src.worker.watchdog import _remove_stale_containers
 
         results = {"stuck_runs_reaped": 0, "stale_containers_removed": 0, "errors": 0}
         with patch("docker.from_env", side_effect=docker.errors.DockerException("daemon off")):
@@ -289,7 +287,9 @@ class TestRemoveStaleContainers:
 
         results = {"stuck_runs_reaped": 0, "stale_containers_removed": 0, "errors": 0}
         with patch("asyncio.get_running_loop") as mock_loop:
-            mock_loop.return_value.run_in_executor = AsyncMock(side_effect=RuntimeError("executor err"))
+            mock_loop.return_value.run_in_executor = AsyncMock(
+                side_effect=RuntimeError("executor err")
+            )
             await _remove_stale_containers(results)
         assert results["errors"] == 1
 
@@ -297,8 +297,9 @@ class TestRemoveStaleContainers:
 class TestRunForever:
     @pytest.mark.asyncio
     async def test_runs_cycles_and_handles_exception(self) -> None:
-        from src.worker.watchdog import run_forever
         from types import SimpleNamespace
+
+        from src.worker.watchdog import run_forever
 
         settings = SimpleNamespace(log_level="INFO", log_format="json")
 

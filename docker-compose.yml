@@ -55,8 +55,8 @@ services:
     volumes:
       # Workers need Docker socket to spin up sandbox containers
       - /var/run/docker.sock:/var/run/docker.sock
-    # Worker needs elevated access for Docker-in-Docker
-    user: root  # TODO: use docker group membership in prod
+    # Worker needs access to communicate with the Docker daemon socket
+    user: root
     environment:
       - LOG_FORMAT=json
       - LOG_LEVEL=INFO

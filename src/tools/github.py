@@ -2,30 +2,30 @@
 src/tools/github.py — Production GitHub client.
 All operations wrapped with retry, rate-limit handling, and structured errors.
 """
+
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import hmac
 import os
-import time
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
+from contextlib import suppress
+from typing import TYPE_CHECKING, Any, cast
 
 import git
-import httpx
 import structlog
 from github import Github, GithubException
-from github.PullRequest import PullRequest as GHPullRequest
-from github.Repository import Repository
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from github.PullRequest import PullRequest as GHPullRequest
 
 from src.agent.state import FilePatch, GithubIssue, PullRequest
 from src.config import get_settings
@@ -41,11 +41,10 @@ class GitHubNotFoundError(Exception):
     pass
 
 
-def _build_authenticated_clone_kwargs(
-    repo_full_name: str, settings: Any = None
-) -> dict[str, Any]:
+def _build_authenticated_clone_kwargs(repo_full_name: str, settings: Any = None) -> dict[str, Any]:
     """Helper to build clone kwargs with authentication."""
     import base64
+
     s = settings or get_settings()
     token = getattr(s, "github_token_value", getattr(s, "github_token", ""))
     auth_bytes = f"x-access-token:{token}".encode()
@@ -68,7 +67,7 @@ class GitHubClient:
         self._settings = get_settings()
         self._gh: Github | None = None
 
-    async def __aenter__(self) -> "GitHubClient":
+    async def __aenter__(self) -> GitHubClient:
         self._gh = Github(
             self._settings.github_token_value,
             retry=3,
@@ -83,25 +82,20 @@ class GitHubClient:
 
     # ── Issue Operations ──────────────────────────────────────────────────────
 
-    async def get_issue(
-        self, repo_full_name: str, issue_number: int
-    ) -> GithubIssue:
+    async def get_issue(self, repo_full_name: str, issue_number: int) -> GithubIssue:
         """Fetch and parse a GitHub issue into our domain model."""
+
         def _fetch() -> GithubIssue:
             assert self._gh is not None
             repo = self._gh.get_repo(repo_full_name)
             issue = repo.get_issue(issue_number)
 
-            comments = [
-                c.body for c in issue.get_comments()
-                if c.body and len(c.body) > 10
-            ][:10]
+            comments = [c.body for c in issue.get_comments() if c.body and len(c.body) > 10][:10]
 
             linked_prs: list[int] = []
             try:
                 for event in issue.get_timeline():
-                    if (event.event == "cross-referenced" and
-                            event.source and event.source.issue):
+                    if event.event == "cross-referenced" and event.source and event.source.issue:
                         linked_prs.append(event.source.issue.number)
             except Exception:
                 pass
@@ -119,7 +113,7 @@ class GitHubClient:
                 html_url=issue.html_url,
             )
 
-        return await self._with_retry(_fetch)
+        return cast("GithubIssue", await self._with_retry(_fetch))
 
     async def comment_on_issue(
         self,
@@ -128,6 +122,7 @@ class GitHubClient:
         body: str,
     ) -> None:
         """Post a comment on an issue."""
+
         def _comment() -> None:
             assert self._gh is not None
             repo = self._gh.get_repo(repo_full_name)
@@ -183,7 +178,9 @@ class GitHubClient:
             with tempfile.TemporaryDirectory() as tmpdir:
                 clone_kwargs = _build_authenticated_clone_kwargs(repo_full_name, settings)
                 clone_url = clone_kwargs.pop("url", f"https://github.com/{repo_full_name}.git")
-                repo = git.Repo.clone_from(clone_url, tmpdir, allow_unsafe_options=True, **clone_kwargs)
+                repo = git.Repo.clone_from(
+                    clone_url, tmpdir, allow_unsafe_options=True, **clone_kwargs
+                )
                 repo.git.checkout("-b", branch_name)
 
                 # Configure git identity
@@ -191,12 +188,11 @@ class GitHubClient:
                     "user", "name", settings.github_bot_username
                 ).release()
                 repo.config_writer().set_value(
-                    "user", "email",
-                    f"{settings.github_bot_username}@users.noreply.github.com"
+                    "user", "email", f"{settings.github_bot_username}@users.noreply.github.com"
                 ).release()
 
                 # Apply each patch
-                for patch in (patches or []):
+                for patch in patches or []:
                     _apply_patch_to_worktree(Path(tmpdir), patch)
 
                 # Commit all changes
@@ -223,13 +219,11 @@ class GitHubClient:
 
             # Add labels
             if labels:
-                existing = [l.name for l in gh_repo.get_labels()]
+                existing = [lbl.name for lbl in gh_repo.get_labels()]
                 for label in labels:
                     if label not in existing:
-                        try:
+                        with suppress(GithubException):
                             gh_repo.create_label(label, "0075ca")
-                        except GithubException:
-                            pass
                 gh_pr.add_to_labels(*labels)
 
             # Link to issue via comment
@@ -247,12 +241,10 @@ class GitHubClient:
                 body=body,
             )
 
-        return await self._with_retry(_create)
+        return cast("PullRequest", await self._with_retry(_create))
 
     @staticmethod
-    def validate_webhook_signature(
-        payload: bytes, signature_header: str
-    ) -> bool:
+    def validate_webhook_signature(payload: bytes, signature_header: str) -> bool:
         """
         Validate GitHub webhook HMAC-SHA256 signature.
         Constant-time comparison to prevent timing attacks.
@@ -300,7 +292,6 @@ class GitHubClient:
     @staticmethod
     async def _with_retry(fn_or_coro: Any) -> Any:
         """Wrap any coroutine or callable with exponential backoff for GitHub API errors."""
-        loop = asyncio.get_running_loop()
         async for attempt in AsyncRetrying(
             retry=retry_if_exception_type(GithubException),
             stop=stop_after_attempt(4),
@@ -320,12 +311,10 @@ class GitHubClient:
 
 # ── Patch Application Helper ──────────────────────────────────────────────────
 
-def _apply_patch_to_worktree(
-    root: "Path", patch: FilePatch
-) -> None:
+
+def _apply_patch_to_worktree(root: Path, patch: FilePatch) -> None:
     """Apply a FilePatch to a local directory using the `patch` command with full-file fallback."""
     import subprocess
-    from pathlib import Path
 
     target = root / patch.file_path
 
@@ -335,7 +324,8 @@ def _apply_patch_to_worktree(
             target.write_text(patch.full_content, encoding="utf-8")
         else:
             lines = [
-                line[1:] for line in patch.unified_diff.splitlines()
+                line[1:]
+                for line in patch.unified_diff.splitlines()
                 if line.startswith("+") and not line.startswith("+++")
             ]
             target.write_text("\n".join(lines), encoding="utf-8")
@@ -366,6 +356,4 @@ def _apply_patch_to_worktree(
             target.write_text(patch.full_content, encoding="utf-8")
             return
         error = result.stderr.decode(errors="replace")
-        raise RuntimeError(
-            f"Patch failed for {patch.file_path}: {error}"
-        )
+        raise RuntimeError(f"Patch failed for {patch.file_path}: {error}")

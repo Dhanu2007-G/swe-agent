@@ -6,10 +6,11 @@ Docker containers accumulate, and the queue fills with ghost jobs.
 
 Runs as a separate process (or scheduled task) — checks every 5 minutes.
 """
+
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import docker
 import docker.errors
@@ -62,14 +63,13 @@ async def _reap_stuck_runs(results: dict[str, int]) -> None:
     Also attempts to post a failure comment on the GitHub issue.
     """
     repo = RunRepository()
-    threshold = datetime.now(timezone.utc) - timedelta(minutes=STUCK_THRESHOLD_MINUTES)
+    threshold = datetime.now(UTC) - timedelta(minutes=STUCK_THRESHOLD_MINUTES)
 
     try:
         # Get all runs that started before the threshold and are still running
         all_running = await repo.list_runs(status="running", limit=100)
         stuck = [
-            r for r in all_running
-            if r.started_at and r.started_at.replace(tzinfo=timezone.utc) < threshold
+            r for r in all_running if r.started_at and r.started_at.replace(tzinfo=UTC) < threshold
         ]
 
         for run in stuck:
@@ -90,7 +90,7 @@ async def _reap_stuck_runs(results: dict[str, int]) -> None:
                         f"Watchdog: run exceeded {STUCK_THRESHOLD_MINUTES}min timeout. "
                         f"The worker process likely crashed."
                     ),
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
 
                 # Try to notify on GitHub
@@ -123,9 +123,7 @@ async def _remove_stale_containers(results: dict[str, int]) -> None:
         removed = 0
         try:
             client = docker.from_env(timeout=10)
-            threshold = datetime.now(timezone.utc) - timedelta(
-                minutes=STALE_CONTAINER_THRESHOLD_MINUTES
-            )
+            threshold = datetime.now(UTC) - timedelta(minutes=STALE_CONTAINER_THRESHOLD_MINUTES)
 
             containers = client.containers.list(
                 all=True,
@@ -140,7 +138,7 @@ async def _remove_stale_containers(results: dict[str, int]) -> None:
                     created_str = created_str[:26] + "Z" if len(created_str) > 26 else created_str
                     created_dt = datetime.fromisoformat(
                         created_str.rstrip("Z").replace("T", " ")
-                    ).replace(tzinfo=timezone.utc)
+                    ).replace(tzinfo=UTC)
 
                     if created_dt < threshold:
                         run_id = container.labels.get("swe-agent.run_id", "unknown")
@@ -181,8 +179,9 @@ async def _post_watchdog_comment(
     """Post a failure notice on the GitHub issue when a run is reaped."""
     body = (
         f"⏰ **SWE Agent** run `{run_id[:12]}...` was automatically terminated.\n\n"
-        f"The agent exceeded the {STUCK_THRESHOLD_MINUTES}-minute timeout, likely due to a worker crash. "
-        f"You can re-trigger by removing and re-adding the `agent-fix` label."
+        f"The agent exceeded the {STUCK_THRESHOLD_MINUTES}-minute timeout, "
+        "likely due to a worker crash. "
+        "You can re-trigger by removing and re-adding the `agent-fix` label."
     )
 
     try:
@@ -197,6 +196,7 @@ async def _post_watchdog_comment(
 
 
 # ── Watchdog Runner ───────────────────────────────────────────────────────────
+
 
 async def run_forever(interval_seconds: int = 300) -> None:
     """Run the watchdog in an infinite loop. Called from the entrypoint."""

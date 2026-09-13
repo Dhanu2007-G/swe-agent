@@ -2,6 +2,7 @@
 src/worker/entrypoint.py — RQ worker process entrypoint.
 Handles graceful shutdown on SIGTERM, registers queues, configures logging.
 """
+
 from __future__ import annotations
 
 import os
@@ -9,15 +10,14 @@ import signal
 import sys
 
 import structlog
-
-import rq
 from rq import Queue, Worker
 from rq.timeouts import JobTimeoutException
-_RQ_AVAILABLE = True
 
 from src.config import get_settings
 from src.observability.tracing import configure_logging
-from src.worker.queue import QUEUE_NAME, HIGH_PRIORITY_QUEUE, get_sync_redis
+from src.worker.queue import HIGH_PRIORITY_QUEUE, QUEUE_NAME, get_sync_redis
+
+_RQ_AVAILABLE = True
 
 log = structlog.get_logger(__name__)
 
@@ -41,7 +41,6 @@ def main() -> None:
         connection=redis_conn,
         name=f"worker-{os.getpid()}",
         log_job_description=True,
-        job_execution_timeout=settings.redis_job_timeout,
         exception_handlers=[_handle_job_exception],
     )
 
@@ -55,7 +54,7 @@ def main() -> None:
     # Graceful shutdown on SIGTERM
     def _sigterm_handler(signum: int, frame: object) -> None:
         log.info("worker.sigterm_received", pid=os.getpid())
-        worker.request_stop()
+        worker.request_stop(signum, frame)  # type: ignore[no-untyped-call]
 
     signal.signal(signal.SIGTERM, _sigterm_handler)
 

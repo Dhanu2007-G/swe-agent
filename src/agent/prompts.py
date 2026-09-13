@@ -2,8 +2,8 @@
 src/agent/prompts.py — All LLM prompts, versioned and testable.
 Prompts are pure strings — no logic. Tested separately in tests/unit/test_prompts.py.
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 # ── Planner Node ─────────────────────────────────────────────────────────────
 
@@ -45,7 +45,8 @@ You will receive file contents and a task description.
 
 Rules:
 1. Output ONLY unified diffs in standard `git diff` format
-2. Never output full file contents as unformatted text — keep diffs minimal or use full_content field
+2. Never output full file contents as unformatted text —
+   keep diffs minimal or use full_content field
 3. Keep changes minimal and surgical — only what the task requires
 4. Preserve existing code style (indentation, naming conventions, docstrings)
 5. If you need to add imports, add them at the top in alphabetical order
@@ -181,7 +182,8 @@ Traceback (last 10 lines):
 DRAFT_PR_BODY = """\
 ## ⚠️ Automated Agent — Partial Fix (Draft PR)
 
-This PR was opened automatically by the SWE Agent but **failed to produce a fully passing patch** after {max_retries} attempts.
+This PR was opened automatically by the SWE Agent but **failed to produce a fully passing patch**
+after {max_retries} attempts.
 
 ### Issue
 Resolves #{issue_number}

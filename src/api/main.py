@@ -2,11 +2,15 @@
 src/api/main.py — FastAPI application entrypoint.
 Handles GitHub webhooks, job status API, and health endpoints.
 """
+
 from __future__ import annotations
 
 import time
-from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from contextlib import asynccontextmanager, suppress
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 import structlog
 from fastapi import FastAPI, Request, Response
@@ -15,9 +19,9 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
-from src.api.webhook import router as webhook_router
 from src.api.routes import router as api_router
 from src.api.security import RequestValidationMiddleware, SecurityHeadersMiddleware
+from src.api.webhook import router as webhook_router
 from src.config import get_settings
 from src.db.database import init_db
 from src.observability.tracing import configure_logging, configure_tracing
@@ -46,6 +50,7 @@ WEBHOOK_COUNTER = Counter(
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
+
 async def close_redis_connection() -> None:
     """Close redis connection pool."""
     try:
@@ -64,7 +69,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
 
     # Configure logging before anything else
-    configure_logging(getattr(settings, "log_level", "INFO"), getattr(settings, "log_format", "json"))
+    configure_logging(
+        getattr(settings, "log_level", "INFO"), getattr(settings, "log_format", "json")
+    )
     configure_tracing()
 
     log.info("app.starting", env=getattr(settings, "app_env", "development"))
@@ -88,13 +95,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     log.info("app.shutting_down")
-    try:
+    with suppress(Exception):
         await close_redis_connection()
-    except Exception:
-        pass
 
 
 # ── Application Factory ───────────────────────────────────────────────────────
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
@@ -157,8 +163,9 @@ def create_app() -> FastAPI:
 
     # ── Routes ────────────────────────────────────────────────────────────────
     from pathlib import Path
-    from fastapi.staticfiles import StaticFiles
+
     from fastapi.responses import RedirectResponse
+    from fastapi.staticfiles import StaticFiles
 
     demo_dir = Path(__file__).resolve().parent.parent.parent / "demo"
     if demo_dir.exists():
@@ -179,6 +186,7 @@ def create_app() -> FastAPI:
     @app.get("/health/ready", tags=["health"])
     async def health_ready() -> JSONResponse:
         from sqlalchemy import text
+
         from src.db.database import _engine
 
         components = {}
@@ -236,8 +244,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        log.error("unhandled_exception", path=request.url.path,
-                  error=str(exc), exc_info=True)
+        log.error("unhandled_exception", path=request.url.path, error=str(exc), exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"},

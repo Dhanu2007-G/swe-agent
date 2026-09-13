@@ -2,6 +2,7 @@
 src/config.py — Production configuration via Pydantic Settings.
 All secrets sourced from environment. No hardcoded values.
 """
+
 from __future__ import annotations
 
 import secrets

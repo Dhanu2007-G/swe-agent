@@ -18,9 +18,7 @@ def reset_checkpointer() -> None:
         "langgraph.checkpoint.postgres": ModuleType("langgraph.checkpoint.postgres"),
         "langgraph.checkpoint.postgres.aio": aio_module,
     }
-    original_modules = {
-        name: sys.modules.get(name) for name in monkey_modules
-    }
+    original_modules = {name: sys.modules.get(name) for name in monkey_modules}
 
     for name, module in monkey_modules.items():
         sys.modules[name] = module

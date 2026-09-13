@@ -125,6 +125,9 @@ show-config: ## Show current config (secrets redacted)
 list: ## List recent runs
 	python -m src.cli list-runs
 
+demo: ## Launch the interactive demo UI at http://localhost:3000
+	python scripts/run_demo.py
+
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
 clean: ## Remove build artifacts, caches, and temp files

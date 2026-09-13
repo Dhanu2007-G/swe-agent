@@ -1,14 +1,16 @@
 """
 tests/unit/test_filesystem.py — Tests for file loading, BM25 search, and token budget.
 """
+
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from src.tools.filesystem import (
     LANGUAGE_MAP,
@@ -17,8 +19,8 @@ from src.tools.filesystem import (
     count_tokens,
 )
 
-
 # ── Language Detection ────────────────────────────────────────────────────────
+
 
 class TestLanguageMap:
     def test_python_detected(self) -> None:
@@ -35,6 +37,7 @@ class TestLanguageMap:
 
 # ── Token Counting ────────────────────────────────────────────────────────────
 
+
 class TestTokenCounting:
     def test_empty_returns_zero(self) -> None:
         assert count_tokens("") == 0
@@ -50,6 +53,7 @@ class TestTokenCounting:
 
 
 # ── Symbol Extraction ─────────────────────────────────────────────────────────
+
 
 class TestSymbolExtraction:
     def test_extracts_function_names(self) -> None:
@@ -77,6 +81,7 @@ class TestSymbolExtraction:
 
 
 # ── BM25 Tokenizer ────────────────────────────────────────────────────────────
+
 
 class TestBM25Tokenizer:
     def test_lowercase(self) -> None:
@@ -106,14 +111,13 @@ class TestBM25Tokenizer:
 
 # ── Load File Contexts (with real temp files) ─────────────────────────────────
 
+
 class TestLoadFileContexts:
     @pytest.fixture
     def temp_repo(self, tmp_path: Path) -> Path:
         """Create a temp directory with sample Python files."""
         (tmp_path / "src").mkdir()
-        (tmp_path / "src" / "utils.py").write_text(
-            "def helper(x: int) -> int:\n    return x * 2\n"
-        )
+        (tmp_path / "src" / "utils.py").write_text("def helper(x: int) -> int:\n    return x * 2\n")
         (tmp_path / "src" / "service.py").write_text(
             "class MyService:\n    def run(self):\n        pass\n"
         )
@@ -196,6 +200,7 @@ class TestLoadFileContexts:
 
 # ── Repo Tree ─────────────────────────────────────────────────────────────────
 
+
 class TestListRepoTree:
     @pytest.mark.asyncio
     async def test_generates_tree_string(self, tmp_path: Path) -> None:
@@ -238,24 +243,35 @@ class TestListRepoTree:
 
     @pytest.mark.asyncio
     async def test_list_repo_tree_depth_and_permission_error(self, tmp_path: Path) -> None:
-        from src.tools.filesystem import list_repo_tree
         from unittest.mock import MagicMock
+
+        from src.tools.filesystem import list_repo_tree
 
         (tmp_path / "deep").mkdir()
         (tmp_path / "deep" / "level1").mkdir()
         (tmp_path / "deep" / "level1" / "file.py").write_text("print(1)")
 
-        with patch("src.tools._repo_cache.get_local_repo_path", new_callable=AsyncMock, return_value=str(tmp_path)):
+        with patch(
+            "src.tools._repo_cache.get_local_repo_path",
+            new_callable=AsyncMock,
+            return_value=str(tmp_path),
+        ):
             tree = await list_repo_tree("owner/repo", max_depth=0)
             assert "level1" not in tree
 
         # Test PermissionError handling
         mock_path = MagicMock()
         mock_path.iterdir.side_effect = PermissionError("no access")
-        with patch("src.tools._repo_cache.get_local_repo_path", new_callable=AsyncMock, return_value=str(tmp_path)):
-            with patch("pathlib.Path.iterdir", side_effect=PermissionError("no access")):
-                tree2 = await list_repo_tree("owner/repo")
-                assert tree2 == ""
+        with (
+            patch(
+                "src.tools._repo_cache.get_local_repo_path",
+                new_callable=AsyncMock,
+                return_value=str(tmp_path),
+            ),
+            patch("pathlib.Path.iterdir", side_effect=PermissionError("no access")),
+        ):
+            tree2 = await list_repo_tree("owner/repo")
+            assert tree2 == ""
 
 
 class TestListTestFiles:
@@ -268,7 +284,11 @@ class TestListTestFiles:
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "app.py").write_text("def run(): pass")
 
-        with patch("src.tools._repo_cache.get_local_repo_path", new_callable=AsyncMock, return_value=str(tmp_path)):
+        with patch(
+            "src.tools._repo_cache.get_local_repo_path",
+            new_callable=AsyncMock,
+            return_value=str(tmp_path),
+        ):
             test_files = await list_test_files("owner/repo")
 
         assert "tests/test_api.py" in test_files
@@ -281,21 +301,37 @@ class TestSearchFilesBm25:
         from src.tools.filesystem import find_relevant_files
 
         (tmp_path / "src").mkdir()
-        (tmp_path / "src" / "user_service.py").write_text("class UserService:\n    def get_user_by_id(self): pass")
-        (tmp_path / "src" / "order_service.py").write_text("class OrderService:\n    def process_order(self): pass")
-        (tmp_path / "src" / "payment_service.py").write_text("class PaymentService:\n    def charge(self): pass")
-        (tmp_path / "src" / "catalog_service.py").write_text("class CatalogService:\n    def list_items(self): pass")
+        (tmp_path / "src" / "user_service.py").write_text(
+            "class UserService:\n    def get_user_by_id(self): pass"
+        )
+        (tmp_path / "src" / "order_service.py").write_text(
+            "class OrderService:\n    def process_order(self): pass"
+        )
+        (tmp_path / "src" / "payment_service.py").write_text(
+            "class PaymentService:\n    def charge(self): pass"
+        )
+        (tmp_path / "src" / "catalog_service.py").write_text(
+            "class CatalogService:\n    def list_items(self): pass"
+        )
         (tmp_path / ".venv").mkdir()
         (tmp_path / ".venv" / "ignored.py").write_text("class Ignored: pass")
 
-        with patch("src.tools._repo_cache.get_local_repo_path", new_callable=AsyncMock, return_value=str(tmp_path)):
+        with patch(
+            "src.tools._repo_cache.get_local_repo_path",
+            new_callable=AsyncMock,
+            return_value=str(tmp_path),
+        ):
             # Positive score with larger corpus
-            results = await find_relevant_files("owner/repo", query="get_user_by_id UserService", exclude=[])
+            results = await find_relevant_files(
+                "owner/repo", query="get_user_by_id UserService", exclude=[]
+            )
             assert "src/user_service.py" in results
             assert ".venv/ignored.py" not in results
 
             # Exclude works
-            results_excluded = await find_relevant_files("owner/repo", query="get_user_by_id", exclude=["src/user_service.py"])
+            results_excluded = await find_relevant_files(
+                "owner/repo", query="get_user_by_id", exclude=["src/user_service.py"]
+            )
             assert "src/user_service.py" not in results_excluded
 
             # Read error handling during search
@@ -304,15 +340,24 @@ class TestSearchFilesBm25:
                 assert res_err == []
 
             # Empty corpus returns empty
-            empty_results = await find_relevant_files("owner/repo", query="something", exclude=[
-                "src/user_service.py", "src/order_service.py", "src/payment_service.py", "src/catalog_service.py"
-            ])
+            empty_results = await find_relevant_files(
+                "owner/repo",
+                query="something",
+                exclude=[
+                    "src/user_service.py",
+                    "src/order_service.py",
+                    "src/payment_service.py",
+                    "src/catalog_service.py",
+                ],
+            )
             assert empty_results == []
 
             # 2-file small corpus (score == 0 fallback)
-            small_results = await find_relevant_files("owner/repo", query="get_user_by_id", exclude=[
-                "src/payment_service.py", "src/catalog_service.py"
-            ])
+            small_results = await find_relevant_files(
+                "owner/repo",
+                query="get_user_by_id",
+                exclude=["src/payment_service.py", "src/catalog_service.py"],
+            )
             assert "src/user_service.py" in small_results
 
     @pytest.mark.asyncio
@@ -322,7 +367,13 @@ class TestSearchFilesBm25:
         f = tmp_path / "unreadable.py"
         f.write_text("hello")
 
-        with patch("src.tools._repo_cache.get_local_repo_path", new_callable=AsyncMock, return_value=str(tmp_path)):
-            with patch("pathlib.Path.read_text", side_effect=RuntimeError("disk err")):
-                res = await load_file_contexts("owner/repo", ["unreadable.py"])
-                assert res == []
+        with (
+            patch(
+                "src.tools._repo_cache.get_local_repo_path",
+                new_callable=AsyncMock,
+                return_value=str(tmp_path),
+            ),
+            patch("pathlib.Path.read_text", side_effect=RuntimeError("disk err")),
+        ):
+            res = await load_file_contexts("owner/repo", ["unreadable.py"])
+            assert res == []

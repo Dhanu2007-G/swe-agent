@@ -11,11 +11,11 @@ Instead of dumping raw file contents into the LLM context, we:
 The roadmap calls this out explicitly: "Extract function signatures and class
 definitions. Give the LLM structure-aware context, not raw file dumps."
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import structlog
@@ -25,7 +25,25 @@ from src.config import get_settings
 
 log = structlog.get_logger(__name__)
 
-_TOKENIZER = tiktoken.get_encoding("cl100k_base")
+
+def _get_tokenizer() -> Any:
+    try:
+        return tiktoken.get_encoding("cl100k_base")
+    except Exception:
+
+        class _FallbackTokenizer:
+            def encode(self, text: str, disallowed_special: tuple[str, ...] = ()) -> list[int]:
+                if not text:
+                    return []
+                import re
+
+                tokens = re.findall(r"\w+|[^\w\s]", text)
+                return list(range(len(tokens)))
+
+        return _FallbackTokenizer()
+
+
+_TOKENIZER = _get_tokenizer()
 
 
 def _count_tokens(text: str) -> int:
@@ -34,11 +52,13 @@ def _count_tokens(text: str) -> int:
 
 # ── Data Classes ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Symbol:
     """A named code symbol extracted by AST parsing."""
+
     name: str
-    kind: str            # "function" | "class" | "method" | "import"
+    kind: str  # "function" | "class" | "method" | "import"
     start_line: int
     end_line: int
     docstring: str = ""
@@ -48,9 +68,10 @@ class Symbol:
 @dataclass
 class FileContext:
     """A file prepared for LLM consumption, with token budget applied."""
+
     path: str
     language: str
-    content: str         # possibly truncated
+    content: str  # possibly truncated
     symbols: list[Symbol] = field(default_factory=list)
     token_count: int = 0
     was_truncated: bool = False
@@ -60,9 +81,7 @@ class FileContext:
         """Format for insertion into a coder/corrector prompt."""
         lines = [f"### {self.path}"]
         if self.symbols:
-            sym_summary = ", ".join(
-                f"{s.kind} `{s.name}`" for s in self.symbols[:8]
-            )
+            sym_summary = ", ".join(f"{s.kind} `{s.name}`" for s in self.symbols[:8])
             lines.append(f"*Symbols: {sym_summary}*")
         if self.was_truncated:
             lines.append(f"*{self.truncation_note}*")
@@ -75,6 +94,7 @@ class FileContext:
 @dataclass
 class ContextBudget:
     """Token budget tracker across all files."""
+
     total_limit: int
     used: int = 0
 
@@ -96,6 +116,7 @@ class ContextBudget:
 
 # ── Main Context Builder ──────────────────────────────────────────────────────
 
+
 class ContextBuilder:
     """
     Builds a token-budgeted, AST-enriched context package for the coder node.
@@ -114,9 +135,7 @@ class ContextBuilder:
     ) -> None:
         self.task_description = task_description
         settings = get_settings()
-        self._budget = ContextBudget(
-            total_limit=token_limit or settings.agent_max_context_tokens
-        )
+        self._budget = ContextBudget(total_limit=token_limit or settings.agent_max_context_tokens)
         self._files: list[FileContext] = []
 
     def add_file(
@@ -172,10 +191,7 @@ class ContextBuilder:
 
     def get_symbol_index(self) -> dict[str, list[str]]:
         """Return {file_path: [symbol_names]} for debugging/logging."""
-        return {
-            fc.path: [s.name for s in fc.symbols]
-            for fc in self._files
-        }
+        return {fc.path: [s.name for s in fc.symbols] for fc in self._files}
 
     @property
     def file_count(self) -> int:
@@ -187,6 +203,7 @@ class ContextBuilder:
 
 
 # ── Token Budget Application ──────────────────────────────────────────────────
+
 
 def _apply_token_budget(
     path: str,
@@ -258,10 +275,7 @@ def _truncate_at_boundary(
         partial = "".join(lines[: symbol.end_line + 1])
         if _count_tokens(partial) <= max_tokens:
             remaining_symbols = len(symbols) - symbols.index(symbol) - 1
-            note = (
-                f"Truncated after `{symbol.name}` "
-                f"({remaining_symbols} more symbol(s) omitted)"
-            )
+            note = f"Truncated after `{symbol.name}` ({remaining_symbols} more symbol(s) omitted)"
             return partial, note
 
     # No symbol boundary fits — hard truncate by estimating chars per token
@@ -271,7 +285,7 @@ def _truncate_at_boundary(
     # Don't cut mid-line
     last_newline = truncated.rfind("\n")
     if last_newline > char_limit // 2:
-        truncated = truncated[:last_newline + 1]
+        truncated = truncated[: last_newline + 1]
 
     return truncated, "Hard-truncated to fit token budget"
 
@@ -293,7 +307,7 @@ _GRAMMAR_MODULES: dict[str, tuple[str, str]] = {
 }
 
 
-def _get_treesitter_parser(language: str = "python"):
+def _get_treesitter_parser(language: str = "python") -> Any:
     """Return a cached tree-sitter parser for the given language."""
     global _TS_PARSER, _TS_PARSERS
     if language == "python" and _TS_PARSER is not None:
@@ -307,6 +321,7 @@ def _get_treesitter_parser(language: str = "python"):
     module_name, func_name = _GRAMMAR_MODULES[language]
     try:
         import importlib
+
         from tree_sitter import Language, Parser
 
         mod = importlib.import_module(module_name)
@@ -358,7 +373,7 @@ def _extract_python_symbols_treesitter(content: str) -> list[Symbol]:
             ret = (": " + return_node.text.decode()) if return_node else ""
 
             kind = "method" if class_name else "function"
-            prefix = f"async def" if node.type == "async_function_definition" else "def"
+            prefix = "async def" if node.type == "async_function_definition" else "def"
             full_name = f"{class_name}.{name}" if class_name else name
 
             # Extract docstring from first expression statement
@@ -371,25 +386,29 @@ def _extract_python_symbols_treesitter(content: str) -> list[Symbol]:
                     if child and child.type == "string":
                         docstring = child.text.decode().strip("\"'").strip()[:200]
 
-            symbols.append(Symbol(
-                name=full_name,
-                kind=kind,
-                start_line=node.start_point[0],
-                end_line=node.end_point[0],
-                signature=f"{prefix} {name}{params}{ret}:",
-                docstring=docstring,
-            ))
+            symbols.append(
+                Symbol(
+                    name=full_name,
+                    kind=kind,
+                    start_line=node.start_point[0],
+                    end_line=node.end_point[0],
+                    signature=f"{prefix} {name}{params}{ret}:",
+                    docstring=docstring,
+                )
+            )
 
         elif node.type == "class_definition":
             name_node = node.child_by_field_name("name")
             name = name_node.text.decode() if name_node else "unknown"
-            symbols.append(Symbol(
-                name=name,
-                kind="class",
-                start_line=node.start_point[0],
-                end_line=node.end_point[0],
-                signature=f"class {name}:",
-            ))
+            symbols.append(
+                Symbol(
+                    name=name,
+                    kind="class",
+                    start_line=node.start_point[0],
+                    end_line=node.end_point[0],
+                    signature=f"class {name}:",
+                )
+            )
             for child in node.children:
                 _walk(child, class_name=name)
             return  # already recursed
@@ -415,26 +434,30 @@ def _extract_python_symbols_regex(content: str) -> list[Symbol]:
             params = m.group(4)
             kind = "method" if indent > 0 else "function"
             prefix = "async def" if m.group(2) else "def"
-            symbols.append(Symbol(
-                name=name,
-                kind=kind,
-                start_line=i,
-                end_line=_find_block_end(lines, i),
-                signature=f"{prefix} {name}({params}):",
-            ))
+            symbols.append(
+                Symbol(
+                    name=name,
+                    kind=kind,
+                    start_line=i,
+                    end_line=_find_block_end(lines, i),
+                    signature=f"{prefix} {name}({params}):",
+                )
+            )
             continue
 
         # Classes
         m = re.match(r"^class\s+([a-zA-Z_]\w*)", line)
         if m:
             name = m.group(1)
-            symbols.append(Symbol(
-                name=name,
-                kind="class",
-                start_line=i,
-                end_line=_find_block_end(lines, i),
-                signature=f"class {name}:",
-            ))
+            symbols.append(
+                Symbol(
+                    name=name,
+                    kind="class",
+                    start_line=i,
+                    end_line=_find_block_end(lines, i),
+                    signature=f"class {name}:",
+                )
+            )
 
     return symbols
 
@@ -443,7 +466,10 @@ def _extract_generic_symbols_regex(content: str, language: str) -> list[Symbol]:
     """Very basic symbol extraction for non-Python languages."""
     symbols: list[Symbol] = []
     patterns = {
-        "javascript": r"(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[\w]+)\s*=>)",
+        "javascript": (
+            r"(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*="
+            r"\s*(?:async\s+)?(?:\([^)]*\)|[\w]+)\s*=>)"
+        ),
         "typescript": r"(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=)",
         "go": r"^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)\s*\(",
         "java": r"(?:public|private|protected|static|\s)+[\w<>\[\]]+\s+(\w+)\s*\(",
@@ -456,11 +482,15 @@ def _extract_generic_symbols_regex(content: str, language: str) -> list[Symbol]:
         m = re.search(pattern, line)
         if m:
             name = next((g for g in m.groups() if g), "unknown")
-            symbols.append(Symbol(
-                name=name, kind="function",
-                start_line=i, end_line=i + 20,
-                signature=line.strip()[:80],
-            ))
+            symbols.append(
+                Symbol(
+                    name=name,
+                    kind="function",
+                    start_line=i,
+                    end_line=i + 20,
+                    signature=line.strip()[:80],
+                )
+            )
     return symbols
 
 
@@ -480,6 +510,7 @@ def _find_block_end(lines: list[str], start: int) -> int:
 
 
 # ── Convenience builder from raw dicts ───────────────────────────────────────
+
 
 def build_context_from_file_dicts(
     file_dicts: list[dict[str, Any]],

@@ -1,10 +1,14 @@
 """
 src/db/database.py + models.py — Async SQLAlchemy setup with Alembic migrations.
 """
+
 from __future__ import annotations
 
-from datetime import datetime
-from typing import AsyncIterator
+from datetime import datetime  # noqa: TC003
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 from sqlalchemy import (
     DateTime,
@@ -41,7 +45,7 @@ async def init_db() -> None:
         max_overflow=settings.database_max_overflow,
         echo=settings.database_echo,
         pool_pre_ping=True,  # validate connections before use
-        pool_recycle=1800,   # recycle after 30 min
+        pool_recycle=1800,  # recycle after 30 min
     )
 
     _session_factory = async_sessionmaker(
@@ -70,12 +74,14 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 # ── ORM Models ────────────────────────────────────────────────────────────────
 
+
 class Base(DeclarativeBase):
     pass
 
 
 class AgentRun(Base):
     """Persistent record of every agent run."""
+
     __tablename__ = "agent_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -106,7 +112,4 @@ class AgentRun(Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<AgentRun run_id={self.run_id!r} "
-            f"issue={self.issue_number} status={self.status!r}>"
-        )
+        return f"<AgentRun run_id={self.run_id!r} issue={self.issue_number} status={self.status!r}>"

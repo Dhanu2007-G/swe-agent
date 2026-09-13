@@ -2,12 +2,12 @@
 src/tools/_repo_cache.py — In-process LRU cache for cloned repos.
 Prevents redundant git clones within the same worker process.
 """
+
 from __future__ import annotations
 
 import asyncio
 import tempfile
-from functools import lru_cache
-from pathlib import Path
+from typing import Any
 
 import git
 import structlog
@@ -43,9 +43,7 @@ async def get_local_repo_path(repo_full_name: str) -> str:
         return path
 
 
-def _build_authenticated_clone_kwargs(
-    repo_full_name: str, settings: Any
-) -> dict[str, Any]:
+def _build_authenticated_clone_kwargs(repo_full_name: str, settings: Any) -> dict[str, Any]:
     """Helper to build clone kwargs with authentication."""
     token = getattr(settings, "github_token_value", getattr(settings, "github_token", ""))
     url = f"https://{token}@github.com/{repo_full_name}.git"
@@ -54,7 +52,7 @@ def _build_authenticated_clone_kwargs(
 
 async def _clone_fresh(repo_full_name: str) -> str:
     settings = get_settings()
-    tmp = tempfile.mkdtemp(prefix=f"swe-agent-repo-")
+    tmp = tempfile.mkdtemp(prefix="swe-agent-repo-")
     clone_kwargs = _build_authenticated_clone_kwargs(repo_full_name, settings)
     url = clone_kwargs.pop(
         "url",
@@ -74,6 +72,7 @@ async def _clone_fresh(repo_full_name: str) -> str:
 def invalidate_cache(repo_full_name: str | None = None) -> None:
     """Call between tests to avoid stale repos."""
     import shutil
+
     if repo_full_name:
         path = _repo_cache.pop(repo_full_name, None)
         if path:

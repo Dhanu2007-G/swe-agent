@@ -20,10 +20,7 @@ def case_dir(prefix: str) -> object:
     from pathlib import Path
 
     root = (
-        Path(__file__).resolve().parents[2]
-        / "test_out"
-        / "cli_cases"
-        / f"{prefix}-{uuid4().hex}"
+        Path(__file__).resolve().parents[2] / "test_out" / "cli_cases" / f"{prefix}-{uuid4().hex}"
     )
     root.mkdir(parents=True, exist_ok=False)
     try:
@@ -299,6 +296,19 @@ class TestSandboxCommand:
 
         with (
             patch("docker.from_env", return_value=client),
+            patch("src.cli.console.print"),
+            pytest.raises(typer.Exit) as exc_info,
+        ):
+            await cli._check_sandbox()
+
+        assert exc_info.value.exit_code == 1
+
+    @pytest.mark.asyncio
+    async def test_check_sandbox_raises_when_daemon_unreachable(self) -> None:
+        from src import cli
+
+        with (
+            patch("docker.from_env", side_effect=RuntimeError("daemon unreachable")),
             patch("src.cli.console.print"),
             pytest.raises(typer.Exit) as exc_info,
         ):

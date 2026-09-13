@@ -3,18 +3,16 @@ src/tools/filesystem.py — Repo file access + context loading.
 src/tools/search.py is merged here for simplicity.
 Uses tree-sitter for AST-aware context extraction.
 """
+
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 from pathlib import Path
 from typing import Any
 
 import structlog
 import tiktoken
-
-from src.config import get_settings
 
 log = structlog.get_logger(__name__)
 
@@ -38,17 +36,47 @@ LANGUAGE_MAP = {
 }
 
 IGNORE_DIRS = {
-    ".git", "__pycache__", "node_modules", ".venv", "venv",
-    ".env", "dist", "build", ".pytest_cache", ".mypy_cache",
+    ".git",
+    "__pycache__",
+    "node_modules",
+    ".venv",
+    "venv",
+    ".env",
+    "dist",
+    "build",
+    ".pytest_cache",
+    ".mypy_cache",
     "*.egg-info",
 }
 
 IGNORE_FILES = {
-    ".DS_Store", "Thumbs.db", "*.pyc", "*.pyo",
-    "*.lock", "package-lock.json",
+    ".DS_Store",
+    "Thumbs.db",
+    "*.pyc",
+    "*.pyo",
+    "*.lock",
+    "package-lock.json",
 }
 
-_tokenizer = tiktoken.get_encoding("cl100k_base")
+
+def _get_tokenizer() -> Any:
+    try:
+        return tiktoken.get_encoding("cl100k_base")
+    except Exception:
+
+        class _FallbackTokenizer:
+            def encode(self, text: str, disallowed_special: tuple[str, ...] = ()) -> list[int]:
+                if not text:
+                    return []
+                import re
+
+                tokens = re.findall(r"\w+|[^\w\s]", text)
+                return list(range(len(tokens)))
+
+        return _FallbackTokenizer()
+
+
+_tokenizer = _get_tokenizer()
 
 
 def count_tokens(text: str) -> int:
@@ -157,10 +185,7 @@ async def load_file_contexts(
             "token_count": token_count,
         }
 
-    tasks = [
-        loop.run_in_executor(None, _load_one, p)
-        for p in paths
-    ]
+    tasks = [loop.run_in_executor(None, _load_one, p) for p in paths]
     results = await asyncio.gather(*tasks)
     return [r for r in results if r is not None]
 
@@ -176,6 +201,7 @@ async def find_relevant_files(
     Uses function/class name extraction for better signal.
     """
     from rank_bm25 import BM25Okapi
+
     from src.tools._repo_cache import get_local_repo_path
 
     repo_path = await get_local_repo_path(repo)
@@ -209,7 +235,7 @@ async def find_relevant_files(
         bm25 = BM25Okapi(tokenized_corpus)
         query_tokens = _tokenize_for_bm25(query)
         scores = bm25.get_scores(query_tokens)
-        ranked = sorted(zip(paths, scores), key=lambda x: x[1], reverse=True)
+        ranked = sorted(zip(paths, scores, strict=True), key=lambda x: x[1], reverse=True)
 
         matching = []
         for path, score in ranked[:max_results]:
@@ -228,8 +254,7 @@ def _extract_symbols(content: str) -> list[str]:
     """Extract function/class names without a full AST parser (fast)."""
     symbols = []
     for match in re.finditer(
-        r"^\s*(?:class|def|async def)\s+([a-zA-Z_][a-zA-Z0-9_]*)",
-        content, re.MULTILINE
+        r"^\s*(?:class|def|async def)\s+([a-zA-Z_][a-zA-Z0-9_]*)", content, re.MULTILINE
     ):
         symbols.append(match.group(1))
     return symbols

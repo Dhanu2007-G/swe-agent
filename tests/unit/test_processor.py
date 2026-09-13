@@ -283,9 +283,17 @@ class TestPostStatusComment:
 
         with (
             patch("src.worker.processor.RunRepository", return_value=repo),
-            patch("src.worker.processor.get_redis_connection", new_callable=AsyncMock, return_value=redis),
+            patch(
+                "src.worker.processor.get_redis_connection",
+                new_callable=AsyncMock,
+                return_value=redis,
+            ),
             patch("src.worker.processor.GitHubClient", return_value=github_client),
-            patch("src.worker.processor.run_agent", new_callable=AsyncMock, return_value={"status": "succeeded"}),
+            patch(
+                "src.worker.processor.run_agent",
+                new_callable=AsyncMock,
+                return_value={"status": "succeeded"},
+            ),
             patch("src.worker.processor.increment_active_runs"),
             patch("src.worker.processor.decrement_active_runs"),
             patch("src.worker.processor.release_active_job_lock", new_callable=AsyncMock),

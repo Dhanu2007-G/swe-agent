@@ -3,9 +3,8 @@ tests/unit/test_prompts.py — Prompt quality and completeness tests.
 Prompts are the contract between our system and the LLM.
 Test them like any other interface.
 """
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from src.agent.prompts import (
     CODER_SYSTEM,
@@ -118,7 +117,9 @@ class TestErrorClassifierPrompt:
 
     def test_demands_single_word_output(self) -> None:
         """Classifier must produce a single category string, not an explanation."""
-        assert "ONLY" in ERROR_CLASSIFIER_SYSTEM or "nothing else" in ERROR_CLASSIFIER_SYSTEM.lower()
+        assert (
+            "ONLY" in ERROR_CLASSIFIER_SYSTEM or "nothing else" in ERROR_CLASSIFIER_SYSTEM.lower()
+        )
 
 
 class TestDraftPRBody:
@@ -175,6 +176,4 @@ class TestPromptLengths:
             "CORRECTOR_SYSTEM": CORRECTOR_SYSTEM,
         }
         for name, prompt in long_prompts.items():
-            assert len(prompt) < 3000, (
-                f"{name} is {len(prompt)} chars — trim it (target < 3000)"
-            )
+            assert len(prompt) < 3000, f"{name} is {len(prompt)} chars — trim it (target < 3000)"

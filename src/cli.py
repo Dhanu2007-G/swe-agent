@@ -2,20 +2,19 @@
 src/cli.py — Developer CLI for local operations.
 Usage: python -m src.cli [COMMAND]
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
-import sys
-from pathlib import Path
-from typing import Optional
+from datetime import UTC
+from pathlib import Path  # noqa: TC003
+from typing import Any
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.table import Table
-from rich.text import Text
 
 app = typer.Typer(
     name="swe-agent",
@@ -27,6 +26,7 @@ console = Console()
 
 # ── run: trigger a local agent run ────────────────────────────────────────────
 
+
 @app.command()
 def run(
     repo: str = typer.Argument(..., help="Repository in owner/repo format"),
@@ -35,42 +35,46 @@ def run(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Stream all node logs"),
 ) -> None:
     """Trigger a single agent run locally against a real GitHub issue."""
-    console.print(Panel(
-        f"[bold]Running agent[/bold] on [cyan]{repo}[/cyan] issue [yellow]#{issue}[/yellow]",
-        title="SWE Agent",
-        border_style="gold1",
-    ))
+    console.print(
+        Panel(
+            f"[bold]Running agent[/bold] on [cyan]{repo}[/cyan] issue [yellow]#{issue}[/yellow]",
+            title="SWE Agent",
+            border_style="gold1",
+        )
+    )
 
     asyncio.run(_run_local(repo, issue, dry_run, verbose))
 
 
 async def _run_local(repo: str, issue_num: int, dry_run: bool, verbose: bool) -> None:
-    from src.config import get_settings
     from src.observability.tracing import configure_logging
 
-    settings = get_settings()
     configure_logging("DEBUG" if verbose else "INFO", "console")
 
     if dry_run:
         console.print("[yellow]DRY RUN — LLM calls will be mocked[/yellow]")
         _inject_mock_responses()
 
+    import time
+
     from src.agent.graph import run_agent
     from src.agent.state import AgentState, RunStatus
     from src.tools.github import GitHubClient
 
-    import time
     start = time.monotonic()
 
     if dry_run:
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from src.agent.state import GithubIssue
+
         issue_obj = GithubIssue(
             issue_number=issue_num,
             title="[MOCK] Add input validation to user registration endpoint",
             body=(
                 "The `/api/users/register` endpoint does not validate email format.\n"
-                "Any string is accepted. We should validate using the `email-validator` library.\n\n"
+                "Any string is accepted. We should validate using the "
+                "`email-validator` library.\n\n"
                 "**Acceptance criteria:**\n"
                 "- Reject invalid emails with HTTP 422\n"
                 "- Add a unit test for the validation logic"
@@ -80,7 +84,7 @@ async def _run_local(repo: str, issue_num: int, dry_run: bool, verbose: bool) ->
             comments=[],
             linked_prs=[],
             assignees=[],
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             html_url=f"https://github.com/{repo}/issues/{issue_num}",
         )
         console.print(f"[green]✓[/green] Issue (mock): [bold]{issue_obj.title}[/bold]")
@@ -97,7 +101,8 @@ async def _run_local(repo: str, issue_num: int, dry_run: bool, verbose: bool) ->
 
     if dry_run:
         from unittest.mock import AsyncMock, patch
-        from src.agent.state import TaskPlan, Task, CodePatch, FilePatch, TestResult, PullRequest
+
+        from src.agent.state import CodePatch, FilePatch, PullRequest, Task, TaskPlan, TestResult
 
         mock_plan = TaskPlan(
             summary="Add email format validation to user registration route",
@@ -118,7 +123,13 @@ async def _run_local(repo: str, issue_num: int, dry_run: bool, verbose: bool) ->
                 FilePatch(
                     file_path="src/api/users.py",
                     change_type="modify",
-                    unified_diff="--- a/src/api/users.py\n+++ b/src/api/users.py\n@@ -10,3 +10,6 @@\n+    if '@' not in user.email:\n+        raise HTTPException(status_code=422, detail='Invalid email')\n",
+                    unified_diff=(
+                        "--- a/src/api/users.py\n"
+                        "+++ b/src/api/users.py\n"
+                        "@@ -10,3 +10,6 @@\n"
+                        "+    if '@' not in user.email:\n"
+                        "+        raise HTTPException(status_code=422, detail='Invalid email')\n"
+                    ),
                     full_content=None,
                 )
             ],
@@ -128,7 +139,6 @@ async def _run_local(repo: str, issue_num: int, dry_run: bool, verbose: bool) ->
         mock_test_res = TestResult(
             passed=True,
             total=5,
-            passed_count=5,
             failed_count=0,
             failures=[],
             duration_seconds=0.42,
@@ -149,21 +159,44 @@ async def _run_local(repo: str, issue_num: int, dry_run: bool, verbose: bool) ->
         mock_gh.create_pull_request.return_value = mock_pr
 
         mock_sandbox = AsyncMock()
-        mock_sandbox.apply_patches.return_value = type("ApplyRes", (), {"success": True, "error": None})()
+        mock_sandbox.apply_patches.return_value = type(
+            "ApplyRes", (), {"success": True, "error": None}
+        )()
         mock_sandbox.run_tests.return_value = mock_test_res
 
         with (
-            patch("src.tools._repo_cache.get_local_repo_path", new_callable=AsyncMock, return_value="/tmp"),
-            patch("src.tools.filesystem.list_repo_tree", new_callable=AsyncMock, return_value="src/\n  api/\n    users.py"),
-            patch("src.tools.filesystem.list_test_files", new_callable=AsyncMock, return_value=["tests/test_users.py"]),
-            patch("src.tools.search.find_relevant_files", new_callable=AsyncMock, return_value=["src/api/users.py"]),
-            patch("src.tools.filesystem.load_file_contexts", new_callable=AsyncMock, return_value=[]),
-            patch("src.agent.nodes._invoke_with_timeout", side_effect=[
-                type("ClarifierRes", (), {"content": "implementable"})(),
-                mock_plan,
-                mock_patch,
-                type("PRBodyRes", (), {"content": "Automated fix description"})(),
-            ]),
+            patch(
+                "src.tools._repo_cache.get_local_repo_path",
+                new_callable=AsyncMock,
+                return_value="/tmp",
+            ),
+            patch(
+                "src.tools.filesystem.list_repo_tree",
+                new_callable=AsyncMock,
+                return_value="src/\n  api/\n    users.py",
+            ),
+            patch(
+                "src.tools.filesystem.list_test_files",
+                new_callable=AsyncMock,
+                return_value=["tests/test_users.py"],
+            ),
+            patch(
+                "src.tools.search.find_relevant_files",
+                new_callable=AsyncMock,
+                return_value=["src/api/users.py"],
+            ),
+            patch(
+                "src.tools.filesystem.load_file_contexts", new_callable=AsyncMock, return_value=[]
+            ),
+            patch(
+                "src.agent.nodes._invoke_with_timeout",
+                side_effect=[
+                    type("ClarifierRes", (), {"content": "implementable"})(),
+                    mock_plan,
+                    mock_patch,
+                    type("PRBodyRes", (), {"content": "Automated fix description"})(),
+                ],
+            ),
             patch("src.tools.sandbox.SandboxRunner") as mock_sandbox_cls,
             patch("src.tools.github.GitHubClient") as mock_gh_cls,
             patch("src.tools.github._apply_patch_to_worktree"),
@@ -187,7 +220,8 @@ async def _run_local(repo: str, issue_num: int, dry_run: bool, verbose: bool) ->
     console.print(f"\n[{color}]Status: {status.upper()}[/{color}]  [dim]({elapsed:.1f}s)[/dim]")
 
     if pr:
-        console.print(f"[bold]PR:[/bold] {pr.get('pr_url')}")
+        pr_url = getattr(pr, "pr_url", None) if not isinstance(pr, dict) else pr.get("pr_url")
+        console.print(f"[bold]PR:[/bold] {pr_url}")
     if final.get("failure_reason"):
         console.print(f"[red]Failure:[/red] {final['failure_reason']}")
 
@@ -195,6 +229,7 @@ async def _run_local(repo: str, issue_num: int, dry_run: bool, verbose: bool) ->
 
 
 # ── status: show run details ───────────────────────────────────────────────────
+
 
 @app.command()
 def status(
@@ -221,7 +256,10 @@ async def _show_status(run_id: str) -> None:
     table.add_column("Value")
 
     status_color = {
-        "succeeded": "green", "partial": "yellow", "failed": "red", "running": "blue"
+        "succeeded": "green",
+        "partial": "yellow",
+        "failed": "red",
+        "running": "blue",
     }.get(run.status, "white")
 
     table.add_row("Run ID", run.run_id)
@@ -240,16 +278,17 @@ async def _show_status(run_id: str) -> None:
 
 # ── list: show recent runs ────────────────────────────────────────────────────
 
+
 @app.command()
 def list_runs(
-    repo: Optional[str] = typer.Option(None, "--repo", help="Filter by repo"),
+    repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
     limit: int = typer.Option(20, "--limit", help="Max runs to show"),
 ) -> None:
     """List recent agent runs."""
     asyncio.run(_list_runs(repo, limit))
 
 
-async def _list_runs(repo: Optional[str], limit: int) -> None:
+async def _list_runs(repo: str | None, limit: int) -> None:
     from src.db.database import init_db
     from src.db.repository import RunRepository
 
@@ -294,19 +333,24 @@ async def _list_runs(repo: Optional[str], limit: int) -> None:
 
 # ── evals: run the golden eval set ───────────────────────────────────────────
 
+
 @app.command()
 def evals(
     dry_run: bool = typer.Option(True, "--dry-run/--real", help="Use mocks (safe) or real API"),
     concurrency: int = typer.Option(2, "--concurrency", help="Max parallel cases"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Save JSON results to file"),
+    output: Path | None = typer.Option(  # noqa: B008
+        None, "--output", "-o", help="Save JSON results to file"
+    ),
 ) -> None:
     """Run the 10-issue golden eval set to measure agent performance."""
     if not dry_run:
-        console.print(Panel(
-            "[bold red]⚠ REAL MODE[/bold red]: This will make real API calls and open real GitHub PRs.\n"
-            "Ensure you're pointing at test repositories.",
-            border_style="red",
-        ))
+        console.print(
+            Panel(
+                "[bold red]⚠ REAL MODE[/bold red]: This will make real API calls and open "
+                "real GitHub PRs.\nEnsure you're pointing at test repositories.",
+                border_style="red",
+            )
+        )
         confirmed = typer.confirm("Continue?", default=False)
         if not confirmed:
             raise typer.Exit(0)
@@ -314,6 +358,7 @@ def evals(
     summary = asyncio.run(_run_evals(dry_run, concurrency))
 
     from tests.evals.eval_runner import print_eval_table
+
     print_eval_table(summary)
 
     if output:
@@ -330,12 +375,14 @@ def evals(
         console.print(f"\n[dim]Results saved to {output}[/dim]")
 
 
-async def _run_evals(dry_run: bool, concurrency: int) -> object:
+async def _run_evals(dry_run: bool, concurrency: int) -> Any:
     from tests.evals.eval_runner import run_all_evals
+
     return await run_all_evals(max_concurrent=concurrency, dry_run=dry_run)
 
 
 # ── sandbox: test Docker sandbox isolation ────────────────────────────────────
+
 
 @app.command()
 def sandbox_check() -> None:
@@ -347,16 +394,30 @@ def sandbox_check() -> None:
 async def _check_sandbox() -> None:
     import docker
 
-    client = docker.from_env()
-    checks = [
-        ("Docker daemon reachable", True),
-    ]
+    checks: list[tuple[str, bool]] = []
+    try:
+        client = docker.from_env()
+        client.ping()
+        checks.append(("Docker daemon reachable", True))
+    except Exception as e:
+        checks.append(("Docker daemon reachable", False))
+        console.print(f"  [red]✗[/red] Docker daemon reachable: {e}")
+        console.print(
+            "\n[red]Docker daemon is not running or accessible. "
+            "Start Docker Desktop and retry.[/red]"
+        )
+        raise typer.Exit(1) from e
 
     # Try to run a test container
     try:
-        container = client.containers.run(
+        client.containers.run(
             "python:3.12-slim",
-            command=["python", "-c", "import socket; socket.setdefaulttimeout(1); socket.create_connection(('8.8.8.8', 53))"],
+            command=[
+                "python",
+                "-c",
+                "import socket; socket.setdefaulttimeout(1); "
+                "socket.create_connection(('8.8.8.8', 53))",
+            ],
             network_disabled=True,
             remove=True,
         )
@@ -379,6 +440,7 @@ async def _check_sandbox() -> None:
 
 
 # ── config: show current settings (redacted) ─────────────────────────────────
+
 
 @app.command()
 def config_show() -> None:

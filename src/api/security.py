@@ -13,16 +13,20 @@ Injects:
 
 Also validates content-type on POST requests to prevent MIME-type confusion.
 """
+
 from __future__ import annotations
 
-import time
 import uuid
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import ASGIApp
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from starlette.types import ASGIApp
 
 log = structlog.get_logger(__name__)
 
@@ -134,9 +138,8 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
             content_type = request.headers.get("content-type", "")
             # Webhooks from GitHub use application/json but also send extra params
             # So we check prefix only
-            if (
-                request.url.path.startswith("/api/")
-                and not content_type.startswith("application/json")
+            if request.url.path.startswith("/api/") and not content_type.startswith(
+                "application/json"
             ):
                 log.warning(
                     "security.wrong_content_type",

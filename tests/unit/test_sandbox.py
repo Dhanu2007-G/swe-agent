@@ -2,13 +2,19 @@
 tests/unit/test_sandbox.py — Unit tests for Docker sandbox result parsing.
 No real Docker required — tests the pure parsing logic.
 """
+
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
+
 import pytest
 
-from src.tools.sandbox import _infer_error_category, _parse_raw_pytest_output, _parse_test_results
+if TYPE_CHECKING:
+    from pathlib import Path
+
 from src.agent.state import ErrorCategory
+from src.tools.sandbox import _infer_error_category, _parse_raw_pytest_output, _parse_test_results
 
 
 class TestErrorCategoryInference:
@@ -16,16 +22,27 @@ class TestErrorCategoryInference:
         assert _infer_error_category("SyntaxError: invalid syntax") == ErrorCategory.SYNTAX_ERROR
 
     def test_import_error(self) -> None:
-        assert _infer_error_category("ModuleNotFoundError: No module named 'foo'") == ErrorCategory.IMPORT_ERROR
+        assert (
+            _infer_error_category("ModuleNotFoundError: No module named 'foo'")
+            == ErrorCategory.IMPORT_ERROR
+        )
 
     def test_type_error(self) -> None:
-        assert _infer_error_category("TypeError: unsupported operand type(s)") == ErrorCategory.TYPE_ERROR
+        assert (
+            _infer_error_category("TypeError: unsupported operand type(s)")
+            == ErrorCategory.TYPE_ERROR
+        )
 
     def test_attribute_error(self) -> None:
-        assert _infer_error_category("AttributeError: 'NoneType' object has no attribute") == ErrorCategory.TYPE_ERROR
+        assert (
+            _infer_error_category("AttributeError: 'NoneType' object has no attribute")
+            == ErrorCategory.TYPE_ERROR
+        )
 
     def test_fixture_error(self) -> None:
-        assert _infer_error_category("fixture 'db_session' not found") == ErrorCategory.FIXTURE_ERROR
+        assert (
+            _infer_error_category("fixture 'db_session' not found") == ErrorCategory.FIXTURE_ERROR
+        )
 
     def test_unknown_fallback(self) -> None:
         assert _infer_error_category("some random error message") == ErrorCategory.LOGIC_ERROR
@@ -40,7 +57,10 @@ class TestParsePytestOutput:
         assert result.failed_count == 0
 
     def test_some_failing(self) -> None:
-        output = "10 passed, 2 failed in 3.1s\nFAILED tests/test_foo.py::test_bar - AssertionError: expected 1"
+        output = (
+            "10 passed, 2 failed in 3.1s\n"
+            "FAILED tests/test_foo.py::test_bar - AssertionError: expected 1"
+        )
         result = _parse_raw_pytest_output(output, exit_code=1, duration=3.1)
         assert result.passed is False
         assert result.failed_count == 2
@@ -63,15 +83,14 @@ class TestParseTestResultsJson:
             {
                 "nodeid": "tests/test_foo.py::test_broken",
                 "outcome": "failed",
-                "call": {
-                    "longrepr": "AssertionError: assert 1 == 2\n  where 1 = foo()"
-                },
+                "call": {"longrepr": "AssertionError: assert 1 == 2\n  where 1 = foo()"},
             },
         ],
     }
 
     def test_parses_failures(self) -> None:
         import json
+
         result = _parse_test_results(
             json_report=json.dumps(self.SAMPLE_REPORT),
             raw_output="",
@@ -94,6 +113,7 @@ class TestParseTestResultsJson:
 
     def test_parses_coverage_from_json(self) -> None:
         import json
+
         report = {
             "summary": {"total": 5, "passed": 5, "failed": 0},
             "tests": [],
@@ -112,8 +132,9 @@ class TestParseTestResultsJson:
 class TestSandboxRunnerHelpers:
     @pytest.mark.asyncio
     async def test_build_authenticated_clone_kwargs_async(self) -> None:
-        from src.tools.sandbox import _build_authenticated_clone_kwargs_async
         from types import SimpleNamespace
+
+        from src.tools.sandbox import _build_authenticated_clone_kwargs_async
 
         settings = SimpleNamespace(github_token_value="ghp_secret")
         kwargs = await _build_authenticated_clone_kwargs_async("owner/repo", settings)
@@ -122,9 +143,10 @@ class TestSandboxRunnerHelpers:
 
     @pytest.mark.asyncio
     async def test_install_packages_workflow(self) -> None:
-        from src.tools.sandbox import SandboxRunner
         from types import SimpleNamespace
         from unittest.mock import AsyncMock, MagicMock, patch
+
+        from src.tools.sandbox import SandboxRunner
 
         settings = SimpleNamespace(
             sandbox_network_disabled=False,
@@ -144,12 +166,16 @@ class TestSandboxRunnerHelpers:
             assert sb._exec_in_container.await_count == 1
 
             # Missing package installed successfully
-            sb._exec_in_container = AsyncMock(side_effect=[(0, b"MISSING\n"), (0, b"Successfully installed")])
+            sb._exec_in_container = AsyncMock(
+                side_effect=[(0, b"MISSING\n"), (0, b"Successfully installed")]
+            )
             await sb.install_packages(["numpy"])
             assert sb._exec_in_container.await_count == 2
 
             # Missing package install fails
-            sb._exec_in_container = AsyncMock(side_effect=[(0, b"MISSING\n"), (1, b"Error installing")])
+            sb._exec_in_container = AsyncMock(
+                side_effect=[(0, b"MISSING\n"), (1, b"Error installing")]
+            )
             await sb.install_packages(["broken-pkg"])
             assert sb._exec_in_container.await_count == 2
 
@@ -162,9 +188,10 @@ class TestSandboxRunnerHelpers:
 
     @pytest.mark.asyncio
     async def test_run_tests_command_building(self) -> None:
-        from src.tools.sandbox import SandboxRunner
         from types import SimpleNamespace
         from unittest.mock import AsyncMock, MagicMock, patch
+
+        from src.tools.sandbox import SandboxRunner
 
         settings = SimpleNamespace(
             sandbox_timeout_seconds=60,
@@ -183,7 +210,7 @@ class TestSandboxRunnerHelpers:
             assert "python -m pytest tests/test_feature.py" in cmd_run
 
     def test_detect_test_ecosystem_and_build_command(self) -> None:
-        from src.tools.sandbox import _detect_test_ecosystem, _build_ecosystem_command
+        from src.tools.sandbox import _build_ecosystem_command, _detect_test_ecosystem
 
         # Detection
         assert _detect_test_ecosystem("npm test") == "javascript"
@@ -206,18 +233,28 @@ class TestSandboxRunnerHelpers:
         from src.tools.sandbox import _parse_jest_vitest_output, _parse_test_results
 
         # 1. Structured JSON (Vitest/Jest)
-        json_payload = json.dumps({
-            "numTotalTests": 2,
-            "numPassedTests": 1,
-            "numFailedTests": 1,
-            "testResults": [{
-                "assertionResults": [
-                    {"status": "passed", "title": "test one"},
-                    {"status": "failed", "title": "test two", "failureMessages": ["TypeError: undefined is not a function"]},
-                ]
-            }]
-        })
-        res_json = _parse_jest_vitest_output(f"Output before\n{json_payload}\nOutput after", exit_code=1, duration=1.2)
+        json_payload = json.dumps(
+            {
+                "numTotalTests": 2,
+                "numPassedTests": 1,
+                "numFailedTests": 1,
+                "testResults": [
+                    {
+                        "assertionResults": [
+                            {"status": "passed", "title": "test one"},
+                            {
+                                "status": "failed",
+                                "title": "test two",
+                                "failureMessages": ["TypeError: undefined is not a function"],
+                            },
+                        ]
+                    }
+                ],
+            }
+        )
+        res_json = _parse_jest_vitest_output(
+            f"Output before\n{json_payload}\nOutput after", exit_code=1, duration=1.2
+        )
         assert res_json.passed is False
         assert res_json.total == 2
         assert res_json.failed_count == 1
@@ -225,7 +262,9 @@ class TestSandboxRunnerHelpers:
         assert res_json.failures[0].test_id == "test two"
 
         # 2. CLI Text Fallback (Regex)
-        raw_cli = "FAIL src/auth.test.ts\n✕ should validate token\nTests: 1 failed, 2 passed, 3 total\n"
+        raw_cli = (
+            "FAIL src/auth.test.ts\n✕ should validate token\nTests: 1 failed, 2 passed, 3 total\n"
+        )
         res_cli = _parse_jest_vitest_output(raw_cli, exit_code=1, duration=0.8)
         assert res_cli.passed is False
         assert res_cli.total == 3
@@ -233,7 +272,9 @@ class TestSandboxRunnerHelpers:
         assert len(res_cli.failures) >= 1
 
         # 3. Malformed JSON matching regex
-        res_malformed = _parse_jest_vitest_output('{"numTotalTests": corrupt json}', exit_code=0, duration=0.5)
+        res_malformed = _parse_jest_vitest_output(
+            '{"numTotalTests": corrupt json}', exit_code=0, duration=0.5
+        )
         assert res_malformed.passed is True
 
         # 4. Dispatched through _parse_test_results
@@ -255,7 +296,13 @@ class TestSandboxRunnerHelpers:
             json.dumps({"Action": "run", "Test": "TestAdd"}),
             json.dumps({"Action": "pass", "Test": "TestAdd"}),
             json.dumps({"Action": "run", "Test": "TestSub"}),
-            json.dumps({"Action": "output", "Test": "TestSub", "Output": "sub_test.go:12: expected 2 got 3\n"}),
+            json.dumps(
+                {
+                    "Action": "output",
+                    "Test": "TestSub",
+                    "Output": "sub_test.go:12: expected 2 got 3\n",
+                }
+            ),
             json.dumps({"Action": "fail", "Test": "TestSub"}),
         ]
         raw_events = "\n".join(events)
@@ -268,7 +315,12 @@ class TestSandboxRunnerHelpers:
         assert "expected 2 got 3" in res_json.failures[0].error_message
 
         # 2. CLI Text Fallback
-        raw_cli = "=== RUN   TestDivide\n--- FAIL: TestDivide (0.00s)\n    math_test.go:40: divide by zero\nFAIL\n"
+        raw_cli = (
+            "=== RUN   TestDivide\n"
+            "--- FAIL: TestDivide (0.00s)\n"
+            "    math_test.go:40: divide by zero\n"
+            "FAIL\n"
+        )
         res_cli = _parse_go_test_output(raw_cli, exit_code=1, duration=0.2)
         assert res_cli.passed is False
         assert res_cli.failed_count == 1
@@ -328,12 +380,13 @@ class TestSandboxRunnerHelpers:
 
     @pytest.mark.asyncio
     async def test_cloud_sandbox_provider(self, tmp_path: Path) -> None:
-        from src.tools.sandbox import CloudSandboxProvider, SandboxRunner
         from types import SimpleNamespace
+
+        from src.tools.sandbox import CloudSandboxProvider
 
         provider = CloudSandboxProvider(endpoint="http://remote-cluster:8080")
         settings = SimpleNamespace(sandbox_timeout_seconds=30)
-        
+
         container = await provider.create_container(tmp_path, "run-xyz", "owner/repo", settings)
         assert container["status"] == "running"
 
@@ -346,9 +399,11 @@ class TestSandboxRunnerHelpers:
 
     @pytest.mark.asyncio
     async def test_docker_sandbox_provider_exec_and_cleanup(self, tmp_path: Path) -> None:
-        from src.tools.sandbox import DockerSandboxProvider
         from unittest.mock import MagicMock
+
         import docker.errors
+
+        from src.tools.sandbox import DockerSandboxProvider
 
         provider = DockerSandboxProvider()
         mock_container = MagicMock()
@@ -365,9 +420,10 @@ class TestSandboxRunnerHelpers:
 
     @pytest.mark.asyncio
     async def test_docker_sandbox_provider_create_container(self, tmp_path: Path) -> None:
-        from src.tools.sandbox import DockerSandboxProvider
-        from unittest.mock import MagicMock, patch
         from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+
+        from src.tools.sandbox import DockerSandboxProvider
 
         provider = DockerSandboxProvider()
         settings = SimpleNamespace(
@@ -382,14 +438,17 @@ class TestSandboxRunnerHelpers:
         mock_client.containers.create.return_value = MagicMock(short_id="dock123")
 
         with patch("docker.from_env", return_value=mock_client):
-            container = await provider.create_container(tmp_path, "run-dock", "owner/repo", settings)
+            container = await provider.create_container(
+                tmp_path, "run-dock", "owner/repo", settings
+            )
             assert container.short_id == "dock123"
             mock_client.containers.create.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_sandbox_provider_abstract_methods(self) -> None:
-        from src.tools.sandbox import SandboxProvider
         from pathlib import Path
+
+        from src.tools.sandbox import SandboxProvider
 
         class DummyProvider(SandboxProvider):
             async def create_container(self, *args, **kwargs):
