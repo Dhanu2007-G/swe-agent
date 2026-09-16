@@ -388,4 +388,3 @@ def test_filesystem_fallback_tokenizer() -> None:
         fb = _get_tokenizer()
         assert fb.encode("") == []
         assert len(fb.encode("hello world")) == 2
-

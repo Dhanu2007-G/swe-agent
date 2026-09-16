@@ -462,4 +462,3 @@ def test_hard_truncation_single_line_too_large() -> None:
     )
     assert "Hard-truncated" in note
     assert len(truncated) < len(content)
-

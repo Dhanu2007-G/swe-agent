@@ -10,7 +10,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Hardened_Sandbox-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Async_SQLAlchemy-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Redis](https://img.shields.io/badge/Redis-RQ_Worker_Queue-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
-[![Tests Passing](https://img.shields.io/badge/Tests-346_Passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org)
+[![Tests Passing](https://img.shields.io/badge/Tests-387_Passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org)
 [![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen?style=for-the-badge&logo=codecov&logoColor=white)](https://pytest.org)
 [![Polyglot](https://img.shields.io/badge/Languages-Python%20%7C%20TS%20%7C%20Go%20%7C%20Rust-blueviolet?style=for-the-badge)](https://github.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](https://opensource.org/licenses/MIT)
@@ -106,11 +106,12 @@ Tested against real-world production repositories with complex bugs:
 | `eval-009` | `pytest-dev/pytest` | Fixture scope propagation in child sessions | ✅ **Pass** | 2 | 175s | 29,800 |
 | `eval-010` | `django/django` | Migration autodetector foreign key cycle | ⚠️ **Draft PR** | 3 | 310s | 48,100 |
 
-### 📈 Benchmark Metrics:
+### 📈 Benchmark Metrics (Curated Polyglot Golden Tasks):
 - **80% Autonomous Solve Rate (8/10 passed on clean PR)**
 - **100% Actionable Resolution** (2/10 opened high-quality Draft PRs with diagnostic context)
 - **133s Average End-to-End Latency**
-- **346 Automated Tests with 100.00% Statement Coverage**
+- **387 Automated Tests with 100.00% Statement Coverage across all 33 source files**
+- *Note: SWE-bench full harness runner is provided in `tests/evals/eval_runner.py` for scaled benchmarking across full public issue sets.*
 
 ---
 

@@ -273,6 +273,18 @@
         <div>
           <label>Issue Body (What's broken)</label>
           <input type="text" id="issueBody" value="When building googletest with -std=c++20, CTest reports symbol collision in PrintTo range formatter." />
+        <div class="form-row">
+          <div>
+            <label>Execution Mode</label>
+            <select id="execMode" style="border-color:var(--border-bright);background:#0d1530;color:var(--accent);font-weight:600">
+              <option value="sim" selected>⚡ Simulation Walkthrough (Self-Contained)</option>
+              <option value="live">🌐 Live Backend API (http://localhost:8000)</option>
+            </select>
+          </div>
+          <div>
+            <label>API Endpoint</label>
+            <input type="text" id="apiEndpoint" value="http://localhost:8000" placeholder="http://localhost:8000" />
+          </div>
         </div>
         <div class="flex gap-12 mt-12" style="flex-wrap:wrap">
           <button class="btn btn-primary" onclick="runDemo()" id="runBtn">
@@ -1009,6 +1021,102 @@ async function typeLines(termId, lines, delayMs = 40) {
   }
 }
 
+async function runLiveMode(repo, issueNum, endpoint) {
+  resetNodes();
+  clearTerm('terminal');
+  clearTerm('httpLog');
+  document.getElementById('prResult').style.display = 'none';
+  document.getElementById('diffViewer').style.display = 'none';
+  document.getElementById('runBtn').textContent = '⌛ Live Run in Progress…';
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('triggerStatus').innerHTML = '<span class="badge badge-yellow">● Connecting</span>';
+
+  termWrite('terminal', `<span class="t-dim">[LIVE API MODE]</span> Initiating execution on ${endpoint}…`);
+  termWrite('httpLog', `<span class="t-cmd">POST</span> ${endpoint}/api/v1/runs/trigger`);
+  termWrite('httpLog', `<span class="t-accent">{"repo_full_name":"${repo}","issue_number":${parseInt(issueNum, 10)}}</span>`);
+
+  let jobId = null;
+  try {
+    const res = await fetch(`${endpoint}/api/v1/runs/trigger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo_full_name: repo, issue_number: parseInt(issueNum, 10) })
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || `Server returned HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    jobId = data.job_id || data.run_id;
+    termWrite('httpLog', `<span class="t-ok">HTTP ${res.status} Accepted</span>`);
+    termWrite('httpLog', `<span class="t-accent">${JSON.stringify(data)}</span>`);
+    termWrite('terminal', `<span class="t-ok">✓ Run enqueued successfully.</span> run_id: <span class="t-accent">${jobId}</span>`);
+    document.getElementById('runIdBadge').textContent = jobId;
+    document.querySelector('.term-title').textContent = `swe-agent live worker · run_id: ${jobId}`;
+    document.getElementById('triggerStatus').innerHTML = '<span class="badge badge-yellow">● Running</span>';
+  } catch (err) {
+    termWrite('terminal', `<span class="t-err">✗ Connection to backend failed:</span> ${err.message}`);
+    termWrite('terminal', `<span class="t-warn">Tip: Ensure FastAPI server is running on ${endpoint} or switch mode to 'Simulation Walkthrough'.</span>`);
+    document.getElementById('triggerStatus').innerHTML = '<span class="badge badge-red">● Offline</span>';
+    document.getElementById('runBtn').textContent = '⚡ Run Agent Now';
+    document.getElementById('runBtn').disabled = false;
+    demoRunning = false;
+    return;
+  }
+
+  // Poll for status
+  let pollAttempts = 0;
+  const maxPolls = 60;
+  const pollInterval = setInterval(async () => {
+    pollAttempts++;
+    try {
+      const pollRes = await fetch(`${endpoint}/api/v1/runs/${jobId}`);
+      if (!pollRes.ok) return;
+      const run = await pollRes.json();
+
+      termWrite('httpLog', `<span class="t-dim">GET /api/v1/runs/${jobId} → status=${run.status}</span>`);
+
+      if (run.status === 'running') {
+        setNode('read', 'done');
+        setNode('plan', 'done');
+        setNode('code', 'active');
+        setProgress(50, `Agent executing in Docker sandbox (retries: ${run.retry_count || 0})…`);
+      } else if (run.status === 'completed' || run.status === 'success') {
+        clearInterval(pollInterval);
+        setNode('code', 'done');
+        setNode('test', 'done');
+        setNode('pr', 'done');
+        setProgress(100, '✅ Run completed successfully!');
+        termWrite('terminal', `<span class="t-ok">✓ Live run completed!</span> PR URL: <a href="${run.pr_url || '#'}" target="_blank" class="t-accent">${run.pr_url || 'PR generated'}</a>`);
+        document.getElementById('triggerStatus').innerHTML = '<span class="badge badge-green">● Completed</span>';
+        document.getElementById('runBtn').textContent = '⚡ Run Agent Now';
+        document.getElementById('runBtn').disabled = false;
+        demoRunning = false;
+      } else if (run.status === 'failed') {
+        clearInterval(pollInterval);
+        setProgress(100, '❌ Run failed');
+        termWrite('terminal', `<span class="t-err">✗ Live run failed:</span> ${run.failure_reason || 'Unknown error'}`);
+        document.getElementById('triggerStatus').innerHTML = '<span class="badge badge-red">● Failed</span>';
+        document.getElementById('runBtn').textContent = '⚡ Run Agent Now';
+        document.getElementById('runBtn').disabled = false;
+        demoRunning = false;
+      }
+    } catch (e) {
+      // Network hiccup during poll, keep trying
+    }
+
+    if (pollAttempts >= maxPolls) {
+      clearInterval(pollInterval);
+      termWrite('terminal', `<span class="t-dim">[Polling timeout reached. Agent task continues in background.]</span>`);
+      document.getElementById('runBtn').textContent = '⚡ Run Agent Now';
+      document.getElementById('runBtn').disabled = false;
+      demoRunning = false;
+    }
+  }, 2500);
+}
+
 async function runDemo() {
   if (demoRunning) return;
   demoRunning = true;
@@ -1016,6 +1124,14 @@ async function runDemo() {
   const repo = document.getElementById('repoSelect').value;
   const issueNum = document.getElementById('issueNum').value || '6462';
   const sc = SCENARIOS[repo] || SCENARIOS['psf/requests'];
+  const mode = document.getElementById('execMode').value;
+  const endpoint = document.getElementById('apiEndpoint').value.replace(/\/$/, '');
+
+  if (mode === 'live') {
+    await runLiveMode(repo, issueNum, endpoint);
+    return;
+  }
+
   const runId = 'run_' + Math.random().toString(36).substr(2, 8);
 
   // Reset

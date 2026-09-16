@@ -97,7 +97,7 @@ class TestRunCommand:
             await cli._run_local("owner/repo", 42, False, False)
 
         assert mock_print.call_count >= 3
- 
+
     @pytest.mark.asyncio
     async def test_run_local_non_dry_run_github_failure(self) -> None:
         from src import cli

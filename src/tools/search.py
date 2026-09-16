@@ -1,8 +1,212 @@
 """
-src/tools/search.py — Semantic + keyword search over repo code.
-Delegates to filesystem.py's find_relevant_files for BM25 search.
+src/tools/search.py — AST-aware Symbol + BM25 Hybrid Code Search Engine.
+Combines structural AST symbol extraction (classes, functions, async defs, docstrings)
+with BM25 lexical ranking to accurately locate relevant files and code symbols.
 """
 
-from src.tools.filesystem import find_relevant_files
+from __future__ import annotations
 
-__all__ = ["find_relevant_files"]
+import ast
+import asyncio
+import re
+from pathlib import Path
+from typing import Any
+
+import structlog
+from rank_bm25 import BM25Okapi
+
+log = structlog.get_logger(__name__)
+
+IGNORE_DIRS = {
+    ".git",
+    "__pycache__",
+    "node_modules",
+    ".venv",
+    "venv",
+    ".env",
+    "dist",
+    "build",
+    ".pytest_cache",
+    ".mypy_cache",
+    "*.egg-info",
+}
+
+
+class CodeSymbol:
+    """Represents a code symbol extracted via AST."""
+
+    def __init__(
+        self,
+        name: str,
+        kind: str,  # 'class', 'function', 'async_function', 'method'
+        line_number: int,
+        docstring: str = "",
+    ):
+        self.name = name
+        self.kind = kind
+        self.line_number = line_number
+        self.docstring = docstring
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "line_number": self.line_number,
+            "docstring": self.docstring,
+        }
+
+
+def extract_ast_symbols(content: str) -> list[CodeSymbol]:
+    """
+    Extract structural symbols from Python source using python's built-in AST.
+    Falls back to regex if parsing fails (e.g. syntax errors or partial files).
+    """
+    symbols: list[CodeSymbol] = []
+    try:
+        tree = ast.parse(content)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                doc = ast.get_docstring(node) or ""
+                symbols.append(CodeSymbol(name=node.name, kind="class", line_number=node.lineno, docstring=doc))
+            elif isinstance(node, ast.AsyncFunctionDef):
+                doc = ast.get_docstring(node) or ""
+                symbols.append(CodeSymbol(name=node.name, kind="async_function", line_number=node.lineno, docstring=doc))
+            elif isinstance(node, ast.FunctionDef):
+                doc = ast.get_docstring(node) or ""
+                symbols.append(CodeSymbol(name=node.name, kind="function", line_number=node.lineno, docstring=doc))
+    except Exception:
+        # Regex fallback for non-python or unparseable code
+        for match in re.finditer(r"^\s*(?:class|def|async def)\s+([a-zA-Z_][a-zA-Z0-9_]*)", content, re.MULTILINE):
+            symbols.append(CodeSymbol(name=match.group(1), kind="symbol", line_number=1))
+
+    return symbols
+
+
+def tokenize_for_search(text: str) -> list[str]:
+    """Tokenize text for search — handle snake_case, camelCase, and punctuation."""
+    tokens: set[str] = set()
+    for w in re.split(r"[^a-zA-Z0-9_]+", text):
+        if len(w) > 1:
+            tokens.add(w.lower())
+            w_no_us = w.replace("_", "")
+            if len(w_no_us) > 1:
+                tokens.add(w_no_us.lower())
+    # camelCase splitting
+    s1 = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    for sub in re.split(r"[^a-zA-Z0-9]+", s1):
+        if len(sub) > 1:
+            tokens.add(sub.lower())
+    return list(tokens)
+
+
+async def find_relevant_files(
+    repo: str,
+    query: str,
+    exclude: list[str],
+    max_results: int = 3,
+) -> list[str]:
+    """
+    Primary interface for finding relevant files in a repository.
+    Combines AST symbol extraction + BM25 keyword matching.
+    """
+    from src.tools._repo_cache import get_local_repo_path
+
+    repo_path = await get_local_repo_path(repo)
+    loop = asyncio.get_running_loop()
+
+    def _search() -> list[str]:
+        root = Path(repo_path)
+        exclude_set = set(exclude)
+
+        corpus: list[tuple[str, list[str], list[str]]] = []  # (rel_path, tokens, symbol_names)
+        for py_file in root.rglob("*.py"):
+            rel = str(py_file.relative_to(root))
+            if rel in exclude_set:
+                continue
+            if any(ign in rel for ign in IGNORE_DIRS):
+                continue
+            try:
+                content = py_file.read_text(encoding="utf-8", errors="replace")
+                symbols = extract_ast_symbols(content)
+                sym_names = [s.name for s in symbols]
+                docstrings = [s.docstring for s in symbols if s.docstring]
+
+                # Rich token set including file path, symbol names, and docstring terms
+                text_to_tokenize = f"{rel} {' '.join(sym_names)} {' '.join(docstrings)}"
+                tokens = tokenize_for_search(text_to_tokenize)
+                corpus.append((rel, tokens, sym_names))
+            except Exception:
+                continue
+
+        if not corpus:
+            return []
+
+        paths = [c[0] for c in corpus]
+        tokenized_corpus = [c[1] for c in corpus]
+        bm25 = BM25Okapi(tokenized_corpus)
+        query_tokens = tokenize_for_search(query)
+        scores = bm25.get_scores(query_tokens)
+
+        # Apply structural boost: if query mentions a symbol declared in this file, boost score
+        boosted_scores: list[float] = []
+        for i, (_, _, sym_names) in enumerate(corpus):
+            base_score = scores[i]
+            # Check for exact symbol name overlap in query
+            symbol_boost = 0.0
+            for sym in sym_names:
+                if sym.lower() in [q.lower() for q in query_tokens]:
+                    symbol_boost += 1.5
+            boosted_scores.append(base_score + symbol_boost)
+
+        ranked = sorted(zip(paths, boosted_scores, strict=True), key=lambda x: x[1], reverse=True)
+
+        matching = []
+        for path, score in ranked[:max_results]:
+            if score > 0:
+                matching.append(path)
+            else:
+                file_tokens = next((c[1] for c in corpus if c[0] == path), [])
+                if any(t in file_tokens for t in query_tokens):
+                    matching.append(path)
+        return matching
+
+    return await loop.run_in_executor(None, _search)
+
+
+async def search_symbols(
+    repo: str,
+    symbol_query: str,
+) -> list[dict[str, Any]]:
+    """Search for code symbols (functions, classes, methods) matching a query."""
+    from src.tools._repo_cache import get_local_repo_path
+
+    repo_path = await get_local_repo_path(repo)
+    loop = asyncio.get_running_loop()
+
+    def _find_symbols() -> list[dict[str, Any]]:
+        root = Path(repo_path)
+        results: list[dict[str, Any]] = []
+        q_lower = symbol_query.lower()
+
+        for py_file in root.rglob("*.py"):
+            rel = str(py_file.relative_to(root))
+            if any(ign in rel for ign in IGNORE_DIRS):
+                continue
+            try:
+                content = py_file.read_text(encoding="utf-8", errors="replace")
+                symbols = extract_ast_symbols(content)
+                for sym in symbols:
+                    if q_lower in sym.name.lower() or (sym.docstring and q_lower in sym.docstring.lower()):
+                        results.append({
+                            "file": rel,
+                            **sym.to_dict(),
+                        })
+            except Exception:
+                continue
+
+        return results
+
+    return await loop.run_in_executor(None, _find_symbols)
+
+
+__all__ = ["find_relevant_files", "search_symbols", "extract_ast_symbols", "tokenize_for_search"]
