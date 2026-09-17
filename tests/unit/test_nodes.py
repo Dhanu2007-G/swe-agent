@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -448,6 +448,42 @@ class TestNodeExecutionDeepCoverage:
         llm.ainvoke = AsyncMock(return_value=SimpleNamespace(content="ok"))
         res = await _invoke_with_timeout(llm, [], timeout=5, run_name="test_call")
         assert res.content == "ok"
+
+    @pytest.mark.asyncio
+    async def test_is_retryable_llm_error_predicate(self) -> None:
+        from src.agent.nodes import _is_retryable_llm_error
+
+        class FakeRateLimitError(Exception):
+            pass
+
+        assert _is_retryable_llm_error(FakeRateLimitError("too many requests")) is True
+        assert _is_retryable_llm_error(RuntimeError("error: 429 quota exceeded")) is True
+        assert _is_retryable_llm_error(ValueError("syntax error")) is False
+
+    @pytest.mark.asyncio
+    async def test_invoke_with_timeout_retry_success(self) -> None:
+        from types import SimpleNamespace
+
+        from src.agent.nodes import _invoke_with_timeout
+
+        class FakeRateLimitError(Exception):
+            pass
+
+        llm = MagicMock()
+        call_count = 0
+
+        async def _mock_ainvoke(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise FakeRateLimitError("rate limit exceeded")
+            return SimpleNamespace(content="recovered")
+
+        llm.ainvoke = AsyncMock(side_effect=_mock_ainvoke)
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            res = await _invoke_with_timeout(llm, [], timeout=5, run_name="retry_call")
+            assert res.content == "recovered"
+            assert call_count == 2
 
     @pytest.mark.asyncio
     async def test_test_node_patch_apply_failure(

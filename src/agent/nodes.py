@@ -18,7 +18,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from tenacity import (
     AsyncRetrying,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
@@ -95,6 +95,35 @@ def _build_llm(temperature: float = 0.0, max_tokens: int | None = None) -> Any:
     )
 
 
+def _is_retryable_llm_error(exc: BaseException) -> bool:
+    """Check if exception represents transient rate limit or connection error across providers."""
+    name = exc.__class__.__name__.lower()
+    msg = str(exc).lower()
+    if any(
+        k in name
+        for k in (
+            "ratelimit",
+            "connectionerror",
+            "resourceexhausted",
+            "serviceunavailable",
+            "timeout",
+            "apiconnection",
+        )
+    ):
+        return True
+    return any(
+        k in msg
+        for k in (
+            "rate limit",
+            "429",
+            "connection error",
+            "resource exhausted",
+            "overloaded",
+            "quota",
+        )
+    )
+
+
 async def _invoke_with_timeout(
     llm: Any,
     messages: list[Any],
@@ -105,10 +134,8 @@ async def _invoke_with_timeout(
     settings = get_settings()
     effective_timeout = timeout or settings.anthropic_timeout_seconds
 
-    from anthropic import APIConnectionError, RateLimitError
-
     async for attempt in AsyncRetrying(
-        retry=retry_if_exception_type((RateLimitError, APIConnectionError)),
+        retry=retry_if_exception(_is_retryable_llm_error),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, min=4, max=60),
         reraise=True,

@@ -285,6 +285,10 @@
             <label>API Endpoint</label>
             <input type="text" id="apiEndpoint" value="http://localhost:8000" placeholder="http://localhost:8000" />
           </div>
+          <div>
+            <label>API Key (X-API-Key)</label>
+            <input type="password" id="apiKey" value="swe-agent-dev-key-12345" placeholder="swe-agent-dev-key-12345" />
+          </div>
         </div>
         <div class="flex gap-12 mt-12" style="flex-wrap:wrap">
           <button class="btn btn-primary" onclick="runDemo()" id="runBtn">
@@ -1031,15 +1035,20 @@ async function runLiveMode(repo, issueNum, endpoint) {
   document.getElementById('runBtn').disabled = true;
   document.getElementById('triggerStatus').innerHTML = '<span class="badge badge-yellow">● Connecting</span>';
 
+  const apiKey = document.getElementById('apiKey')?.value || 'swe-agent-dev-key-12345';
   termWrite('terminal', `<span class="t-dim">[LIVE API MODE]</span> Initiating execution on ${endpoint}…`);
   termWrite('httpLog', `<span class="t-cmd">POST</span> ${endpoint}/api/v1/runs/trigger`);
+  termWrite('httpLog', `<span class="t-dim">Headers: Content-Type: application/json, X-API-Key: ${apiKey.substring(0, 4)}***</span>`);
   termWrite('httpLog', `<span class="t-accent">{"repo_full_name":"${repo}","issue_number":${parseInt(issueNum, 10)}}</span>`);
 
   let jobId = null;
   try {
     const res = await fetch(`${endpoint}/api/v1/runs/trigger`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey
+      },
       body: JSON.stringify({ repo_full_name: repo, issue_number: parseInt(issueNum, 10) })
     });
 
@@ -1072,7 +1081,9 @@ async function runLiveMode(repo, issueNum, endpoint) {
   const pollInterval = setInterval(async () => {
     pollAttempts++;
     try {
-      const pollRes = await fetch(`${endpoint}/api/v1/runs/${jobId}`);
+      const pollRes = await fetch(`${endpoint}/api/v1/runs/${jobId}`, {
+        headers: { 'X-API-Key': apiKey }
+      });
       if (!pollRes.ok) return;
       const run = await pollRes.json();
 
