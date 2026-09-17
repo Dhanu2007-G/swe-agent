@@ -24,6 +24,13 @@ log = structlog.get_logger(__name__)
 # ── Routing Functions ─────────────────────────────────────────────────────────
 
 
+def route_entry(state: AgentState) -> Literal["read_issue", "read_review"]:
+    """Route initial entry point based on job_type."""
+    if state.get("job_type") == "review_refinement":
+        return "read_review"
+    return "read_issue"
+
+
 def route_after_read(
     state: AgentState,
 ) -> Literal["plan", "__end__"]:
@@ -66,6 +73,14 @@ async def _wrap_read_issue(state: AgentState) -> dict[str, Any]:
     return await nodes.read_issue_node(state)
 
 
+async def _wrap_read_review(state: AgentState) -> dict[str, Any]:
+    return await nodes.read_review_node(state)
+
+
+async def _wrap_refine(state: AgentState) -> dict[str, Any]:
+    return await nodes.refine_from_review_node(state)
+
+
 async def _wrap_plan(state: AgentState) -> dict[str, Any]:
     return await nodes.plan_node(state)
 
@@ -93,14 +108,18 @@ async def _wrap_fail(state: AgentState) -> dict[str, Any]:
 def build_graph() -> StateGraph[AgentState]:
     """
     Assemble the state machine. Node order:
-    read_issue → plan → code → test ─┬→ open_pr → END
-                               ↑     ├→ correct ──┘
-                               └─────┴→ fail → END
+    read_issue ─→ plan ─→ code ─┐
+                                │
+    read_review → refine_review ┴→ test ─┬→ open_pr → END
+                                   ↑     ├→ correct ──┘
+                                   └─────┴→ fail → END
     """
     graph = StateGraph(AgentState)
 
     # Add nodes with dynamic dispatch
     graph.add_node("read_issue", _wrap_read_issue)
+    graph.add_node("read_review", _wrap_read_review)
+    graph.add_node("refine_from_review", _wrap_refine)
     graph.add_node("plan", _wrap_plan)
     graph.add_node("code", _wrap_code)
     graph.add_node("test", _wrap_test)
@@ -109,9 +128,17 @@ def build_graph() -> StateGraph[AgentState]:
     graph.add_node("fail", _wrap_fail)
 
     # Entry point
-    graph.set_entry_point("read_issue")
+    graph.set_conditional_entry_point(
+        route_entry,
+        {
+            "read_issue": "read_issue",
+            "read_review": "read_review",
+        },
+    )
 
     # Fixed edges
+    graph.add_edge("read_review", "refine_from_review")
+    graph.add_edge("refine_from_review", "test")
     graph.add_edge("plan", "code")
     graph.add_edge("code", "test")
     graph.add_edge("correct", "test")  # correction always feeds back into test

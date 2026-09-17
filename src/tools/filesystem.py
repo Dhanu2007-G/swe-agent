@@ -130,7 +130,45 @@ async def list_test_files(repo_full_name: str) -> list[str]:
     def _find() -> list[str]:
         root = Path(repo_path)
         results = []
-        for pattern in ["test_*.py", "*_test.py", "tests/**/*.py"]:
+        patterns = [
+            "test_*.py",
+            "*_test.py",
+            "tests/**/*.py",
+            "**/test_*.py",
+            "**/*_test.py",
+            "*.test.js",
+            "*.spec.js",
+            "*.test.ts",
+            "*.spec.ts",
+            "**/*.test.js",
+            "**/*.spec.js",
+            "**/*.test.ts",
+            "**/*.spec.ts",
+            "**/*.test.jsx",
+            "**/*.spec.jsx",
+            "**/*.test.tsx",
+            "**/*.spec.tsx",
+            "tests/**/*.js",
+            "tests/**/*.ts",
+            "__tests__/**/*.js",
+            "__tests__/**/*.ts",
+            "__tests__/**/*.jsx",
+            "__tests__/**/*.tsx",
+            "**/__tests__/**/*",
+            "*_test.go",
+            "**/*_test.go",
+            "tests/**/*.rs",
+            "tests/*.rs",
+            "*Test.java",
+            "*Tests.java",
+            "*TestCase.java",
+            "**/*Test.java",
+            "**/*Tests.java",
+            "**/*TestCase.java",
+            "src/test/java/**/*.java",
+            "**/src/test/java/**/*.java",
+        ]
+        for pattern in patterns:
             for path in root.glob(pattern):
                 rel = str(path.relative_to(root))
                 if not any(ign in rel for ign in IGNORE_DIRS):

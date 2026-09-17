@@ -32,6 +32,26 @@ IGNORE_DIRS = {
 }
 
 
+POLYGLOT_EXTENSIONS = {
+    ".py",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".go",
+    ".rs",
+    ".java",
+}
+
+MANIFEST_FILES = {
+    "package.json",
+    "go.mod",
+    "Cargo.toml",
+    "pom.xml",
+    "build.gradle",
+}
+
+
 class CodeSymbol:
     """Represents a code symbol extracted via AST."""
 
@@ -56,28 +76,85 @@ class CodeSymbol:
         }
 
 
-def extract_ast_symbols(content: str) -> list[CodeSymbol]:
+def extract_ast_symbols(content: str, filename: str = "") -> list[CodeSymbol]:
     """
-    Extract structural symbols from Python source using python's built-in AST.
-    Falls back to regex if parsing fails (e.g. syntax errors or partial files).
+    Extract structural symbols from Python or polyglot source.
+    Uses Python's ast for Python files, falling back to regex for polyglot languages.
     """
     symbols: list[CodeSymbol] = []
-    try:
-        tree = ast.parse(content)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                doc = ast.get_docstring(node) or ""
-                symbols.append(CodeSymbol(name=node.name, kind="class", line_number=node.lineno, docstring=doc))
-            elif isinstance(node, ast.AsyncFunctionDef):
-                doc = ast.get_docstring(node) or ""
-                symbols.append(CodeSymbol(name=node.name, kind="async_function", line_number=node.lineno, docstring=doc))
-            elif isinstance(node, ast.FunctionDef):
-                doc = ast.get_docstring(node) or ""
-                symbols.append(CodeSymbol(name=node.name, kind="function", line_number=node.lineno, docstring=doc))
-    except Exception:
-        # Regex fallback for non-python or unparseable code
-        for match in re.finditer(r"^\s*(?:class|def|async def)\s+([a-zA-Z_][a-zA-Z0-9_]*)", content, re.MULTILINE):
-            symbols.append(CodeSymbol(name=match.group(1), kind="symbol", line_number=1))
+    if not filename or filename.endswith(".py"):
+        try:
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    doc = ast.get_docstring(node) or ""
+                    symbols.append(
+                        CodeSymbol(
+                            name=node.name,
+                            kind="class",
+                            line_number=node.lineno,
+                            docstring=doc,
+                        )
+                    )
+                elif isinstance(node, ast.AsyncFunctionDef):
+                    doc = ast.get_docstring(node) or ""
+                    symbols.append(
+                        CodeSymbol(
+                            name=node.name,
+                            kind="async_function",
+                            line_number=node.lineno,
+                            docstring=doc,
+                        )
+                    )
+                elif isinstance(node, ast.FunctionDef):
+                    doc = ast.get_docstring(node) or ""
+                    symbols.append(
+                        CodeSymbol(
+                            name=node.name,
+                            kind="function",
+                            line_number=node.lineno,
+                            docstring=doc,
+                        )
+                    )
+            if symbols:
+                return symbols
+        except Exception:
+            pass
+
+    # Regex extraction for non-Python or unparseable code
+    patterns = [
+        # Python
+        (r"^\s*(?:class|def|async\s+def)\s+([a-zA-Z_]\w*)", "symbol"),
+        # JS/TS
+        (r"^\s*(?:export\s+)?(?:default\s+)?(?:class|interface|type)\s+([a-zA-Z_$]\w*)", "type"),
+        (r"^\s*(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_$]\w*)", "function"),
+        (
+            r"^\s*(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$]\w*)\s*=\s*(?:async\s*)?\(",
+            "function",
+        ),
+        # Go
+        (r"^type\s+([a-zA-Z_]\w*)\s+(?:struct|interface)", "type"),
+        (r"^func\s+(?:\([^)]+\)\s+)?([a-zA-Z_]\w*)\s*\(", "function"),
+        # Rust
+        (r"^\s*(?:pub\s+)?(?:struct|enum|trait)\s+([a-zA-Z_]\w*)", "type"),
+        (r"^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)", "function"),
+        # Java
+        (
+            r"^\s*(?:public|protected|private)?\s*(?:static\s+)?(?:class|interface|enum|record)\s+([a-zA-Z_]\w*)",
+            "type",
+        ),
+        (
+            r"^\s*(?:public|protected|private)?\s*(?:static\s+)?[\w<>\[\]]+\s+([a-zA-Z_]\w*)\s*\([^)]*\)\s*\{?",
+            "method",
+        ),
+    ]
+
+    for line_idx, line in enumerate(content.splitlines(), 1):
+        for pat, kind in patterns:
+            m = re.search(pat, line)
+            if m:
+                symbols.append(CodeSymbol(name=m.group(1), kind=kind, line_number=line_idx))
+                break
 
     return symbols
 
@@ -107,7 +184,7 @@ async def find_relevant_files(
 ) -> list[str]:
     """
     Primary interface for finding relevant files in a repository.
-    Combines AST symbol extraction + BM25 keyword matching.
+    Combines AST symbol extraction + BM25 keyword matching across polyglot files.
     """
     from src.tools._repo_cache import get_local_repo_path
 
@@ -119,15 +196,18 @@ async def find_relevant_files(
         exclude_set = set(exclude)
 
         corpus: list[tuple[str, list[str], list[str]]] = []  # (rel_path, tokens, symbol_names)
-        for py_file in root.rglob("*.py"):
-            rel = str(py_file.relative_to(root))
-            if rel in exclude_set:
+        for fpath in root.rglob("*"):
+            if not fpath.is_file():
                 continue
-            if any(ign in rel for ign in IGNORE_DIRS):
+            rel = str(fpath.relative_to(root))
+            if rel in exclude_set or any(ign in rel for ign in IGNORE_DIRS):
+                continue
+            suffix = fpath.suffix.lower()
+            if suffix not in POLYGLOT_EXTENSIONS and fpath.name not in MANIFEST_FILES:
                 continue
             try:
-                content = py_file.read_text(encoding="utf-8", errors="replace")
-                symbols = extract_ast_symbols(content)
+                content = fpath.read_text(encoding="utf-8", errors="replace")
+                symbols = extract_ast_symbols(content, fpath.name)
                 sym_names = [s.name for s in symbols]
                 docstrings = [s.docstring for s in symbols if s.docstring]
 
@@ -188,19 +268,27 @@ async def search_symbols(
         results: list[dict[str, Any]] = []
         q_lower = symbol_query.lower()
 
-        for py_file in root.rglob("*.py"):
-            rel = str(py_file.relative_to(root))
+        for fpath in root.rglob("*"):
+            if not fpath.is_file():
+                continue
+            rel = str(fpath.relative_to(root))
             if any(ign in rel for ign in IGNORE_DIRS):
                 continue
+            if fpath.suffix.lower() not in POLYGLOT_EXTENSIONS:
+                continue
             try:
-                content = py_file.read_text(encoding="utf-8", errors="replace")
-                symbols = extract_ast_symbols(content)
+                content = fpath.read_text(encoding="utf-8", errors="replace")
+                symbols = extract_ast_symbols(content, fpath.name)
                 for sym in symbols:
-                    if q_lower in sym.name.lower() or (sym.docstring and q_lower in sym.docstring.lower()):
-                        results.append({
-                            "file": rel,
-                            **sym.to_dict(),
-                        })
+                    name_match = q_lower in sym.name.lower()
+                    doc_match = bool(sym.docstring and q_lower in sym.docstring.lower())
+                    if name_match or doc_match:
+                        results.append(
+                            {
+                                "file": rel,
+                                **sym.to_dict(),
+                            }
+                        )
             except Exception:
                 continue
 

@@ -1,0 +1,19 @@
+{
+  "eval_id": "eval-003",
+  "repo": "encode/httpx",
+  "issue_number": 2841,
+  "model": "claude-3-7-sonnet-20250219",
+  "status": "succeeded",
+  "retries": 1,
+  "duration_seconds": 52.4,
+  "tokens_used": 18400,
+  "cost_usd": 0.11,
+  "tests_passed": true,
+  "date": "2026-04-10",
+  "timestamp": "2026-04-10T13:30:00Z",
+  "commit_sha": "f55111728222e84368f9cc05853ee65c7eb15d32",
+  "issue": 2841,
+  "result": "succeeded",
+  "pr_url": "https://github.com/encode/httpx/pull/2842",
+  "logs": "Task eval-003 on encode/httpx#2841 completed with result succeeded. Plan created, patches applied, test suite executed in container sandbox. Tokens used: 18400, cost: $0.11."
+}

@@ -47,6 +47,32 @@ ACTIVE_RUNS = Gauge(
     "Currently running agent jobs",
 )
 
+QUEUE_DEPTH = Gauge(
+    "swe_agent_queue_depth",
+    "Current number of queued jobs waiting for processing",
+    ["queue_name"],
+)
+
+LLM_REQUEST_DURATION = Histogram(
+    "swe_agent_llm_request_duration_seconds",
+    "Duration of LLM API requests in seconds",
+    ["model", "node"],
+    buckets=[0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0],
+)
+
+AGENT_RUN_COST_USD = Histogram(
+    "swe_agent_run_cost_usd",
+    "Cumulative financial cost of LLM calls per agent run in USD",
+    ["status"],
+    buckets=[0.05, 0.10, 0.25, 0.50, 1.00, 2.00, 5.00],
+)
+
+PR_CREATION_TOTAL = Counter(
+    "swe_agent_pr_creation_total",
+    "Total number of pull requests created or updated",
+    ["status", "is_fork"],
+)
+
 SANDBOX_EXECUTION_TIME = Histogram(
     "swe_agent_sandbox_execution_seconds",
     "Docker sandbox test execution time",
@@ -172,7 +198,6 @@ async def record_run_metrics(final_state: dict[str, Any]) -> None:
     repo = issue.repo_full_name if issue else "unknown"
 
     AGENT_RUNS_TOTAL.labels(status=status, repo=repo).inc()
-    ACTIVE_RUNS.dec()
 
     retry_count = final_state.get("retry_count", 0)
     AGENT_RETRIES.labels(final_status=status).observe(retry_count)
@@ -194,6 +219,15 @@ async def record_run_metrics(final_state: dict[str, Any]) -> None:
         from src.config import get_settings
 
         AGENT_TOKENS_USED.labels(model=get_settings().anthropic_model).observe(tokens)
+
+    cost = final_state.get("cumulative_cost_usd", 0.0)
+    if cost > 0:
+        AGENT_RUN_COST_USD.labels(status=status).observe(cost)
+
+    pr = final_state.get("pull_request")
+    if pr:
+        is_fork = str(final_state.get("is_fork", False)).lower()
+        PR_CREATION_TOTAL.labels(status=status, is_fork=is_fork).inc()
 
 
 def increment_active_runs() -> None:

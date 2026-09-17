@@ -4,6 +4,7 @@ Revision ID: 0002_single_active
 Revises: 0001_initial_schema
 Create Date: 2026-03-28 00:00:00.000000
 """
+
 from __future__ import annotations
 
 from alembic import op

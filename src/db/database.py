@@ -55,8 +55,13 @@ async def init_db() -> None:
         autoflush=False,
     )
 
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # In production, use Alembic migrations only.
+    # Keep create_all() only for test/dev if explicitly configured
+    auto_create = getattr(settings, "database_auto_create_tables", True)
+    is_prod = getattr(settings, "is_production", False)
+    if auto_create and not is_prod:
+        async with _engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
@@ -88,9 +93,12 @@ class AgentRun(Base):
     run_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     repo_full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     issue_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    job_type: Mapped[str] = mapped_column(String(32), default="issue", nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     pr_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    review_comment_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    parent_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     state_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON

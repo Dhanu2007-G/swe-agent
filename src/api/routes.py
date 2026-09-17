@@ -7,15 +7,17 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from src.api.rate_limit import API_TRIGGER_LIMITER
+from src.api.security import verify_api_key
+from src.config import get_settings
 from src.db.repository import RunRepository
 from src.worker.queue import enqueue_issue_job
 
 log = structlog.get_logger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(verify_api_key)])
 
 
 class TriggerRequest(BaseModel):
@@ -38,6 +40,15 @@ class RunResponse(BaseModel):
 @router.post("/runs/trigger", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_run(body: TriggerRequest) -> dict[str, Any]:
     """Manually trigger an agent run for a GitHub issue."""
+    settings = get_settings()
+    allowed_repos = getattr(settings, "allowed_repositories", [])
+    if allowed_repos and body.repo_full_name not in allowed_repos:
+        log.warning("api.repo_not_allowed", repo=body.repo_full_name)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Repository '{body.repo_full_name}' is not in allowed repositories list",
+        )
+
     allowed, _ = await API_TRIGGER_LIMITER.check(body.repo_full_name)
     if not allowed:
         raise HTTPException(

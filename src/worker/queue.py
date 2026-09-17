@@ -174,6 +174,131 @@ def _enqueue_sync(
     )
 
 
+async def enqueue_review_refinement_job(
+    repo_full_name: str,
+    pr_number: int,
+    comment_id: int,
+    review_feedback: str,
+    delivery_id: str = "",
+    high_priority: bool = False,
+) -> str:
+    """
+    Enqueue an agent review refinement job.
+    Persists pending run with job_type="review_refinement" in DB.
+    """
+    settings = get_settings()
+    redis = await get_redis_connection()
+    lock_key = _active_job_key(repo_full_name, pr_number)
+    raw_id = str(uuid.uuid4().hex)
+    job_id = f"refine-{raw_id}"
+
+    # Acquire lock
+    acquired = await redis.set(lock_key, job_id, nx=True, ex=3600)
+    if not acquired:
+        existing_id = await redis.get(lock_key)
+        return str(existing_id) if existing_id else job_id
+
+    repo = RunRepository()
+    try:
+        await repo.create_run(
+            run_id=job_id,
+            repo_full_name=repo_full_name,
+            issue_number=pr_number,
+            pr_number=pr_number,
+            review_comment_id=comment_id,
+            job_type="review_refinement",
+            status="pending",
+        )
+    except IntegrityError:
+        await redis.delete(lock_key)
+        active_run = await repo.get_active_run(repo_full_name, pr_number)
+        if active_run:
+            return active_run.run_id
+        await repo.update_run(run_id=job_id, status="failed", failure_reason="DB conflict")
+        job_key = f"job:{job_id}"
+        await redis.hset(job_key, mapping={"status": "failed"})
+        raise
+
+    # Store job metadata in Redis for async polling
+    job_key = f"job:{job_id}"
+    await redis.hset(
+        job_key,
+        mapping={
+            "job_id": job_id,
+            "repo": repo_full_name,
+            "issue_number": str(pr_number),
+            "pr_number": str(pr_number),
+            "delivery_id": delivery_id,
+            "job_type": "review_refinement",
+            "status": "queued",
+        },
+    )
+    await redis.expire(job_key, settings.redis_result_ttl)
+
+    # Enqueue via RQ
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            _enqueue_review_refinement_sync,
+            job_id,
+            repo_full_name,
+            pr_number,
+            comment_id,
+            review_feedback,
+            high_priority,
+            settings.redis_job_timeout,
+        )
+    except Exception as e:
+        await repo.update_run(run_id=job_id, status="failed", failure_reason=str(e))
+        await redis.hset(job_key, mapping={"status": "failed"})
+        await redis.delete(lock_key)
+        raise
+
+    log.info(
+        "queue.review_job_enqueued",
+        job_id=job_id,
+        repo=repo_full_name,
+        pr=pr_number,
+        priority="high" if high_priority else "normal",
+    )
+    return job_id
+
+
+def _enqueue_review_refinement_sync(
+    job_id: str,
+    repo_full_name: str,
+    pr_number: int,
+    comment_id: int,
+    review_feedback: str,
+    high_priority: bool,
+    timeout: int,
+) -> None:
+    """Synchronous RQ enqueue for review refinement job."""
+    import rq
+
+    redis_conn = get_sync_redis()
+    queue_name = HIGH_PRIORITY_QUEUE if high_priority else QUEUE_NAME
+    q = Queue(queue_name, connection=redis_conn)
+
+    retry_cls = getattr(rq, "Retry", None)
+    retry_obj = retry_cls(max=3) if retry_cls else 3
+
+    q.enqueue(
+        "src.worker.processor.process_review_refinement_job",
+        kwargs={
+            "repo_full_name": repo_full_name,
+            "pr_number": pr_number,
+            "comment_id": comment_id,
+            "review_feedback": review_feedback,
+            "run_id": job_id,
+        },
+        job_id=job_id,
+        job_timeout=timeout,
+        retry=retry_obj,
+    )
+
+
 async def get_job_status(job_id: str) -> dict[str, Any] | None:
     """Poll job status from Redis."""
     redis = await get_redis_connection()

@@ -20,7 +20,8 @@ import uuid
 from typing import TYPE_CHECKING
 
 import structlog
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response, Security, status
+from fastapi.security import APIKeyHeader
 from starlette.middleware.base import BaseHTTPMiddleware
 
 if TYPE_CHECKING:
@@ -153,3 +154,36 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
                 )
 
         return await call_next(request)
+
+
+API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(
+    api_key: str | None = Security(API_KEY_HEADER),
+) -> str | None:
+    """Validate X-API-Key header against configured API keys."""
+    from src.config import get_settings
+
+    settings = get_settings()
+    if not getattr(settings, "api_auth_enabled", True):
+        return None
+
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key",
+        )
+
+    import secrets
+
+    configured_keys = getattr(settings, "api_keys", [])
+    valid = any(
+        secrets.compare_digest(api_key, configured_key) for configured_key in configured_keys
+    )
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key",
+        )
+    return api_key

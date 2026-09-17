@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import tempfile
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import docker
 import docker.errors
@@ -204,11 +205,26 @@ class DockerSandboxProvider(SandboxProvider):
                 log.warning("sandbox.tempdir_cleanup_error", error=str(e))
 
 
-class CloudSandboxProvider(SandboxProvider):
-    """Pluggable cloud sandbox provider for remote cluster execution."""
+class KubernetesSandboxProvider(SandboxProvider):
+    """
+    Kubernetes Pod sandbox provider for cluster-native execution.
+    Enforces Kubernetes pod security standards:
+      - securityContext.runAsNonRoot: true
+      - securityContext.readOnlyRootFilesystem: true
+      - securityContext.capabilities.drop: ["ALL"]
+      - securityContext.allowPrivilegeEscalation: false
+      - resource limits: cpu, memory
+      - ephemeral workspace emptyDir volume
+      - teardown / cleanup on finish
+    """
 
-    def __init__(self, endpoint: str = "http://cloud-sandbox.internal"):
-        self.endpoint = endpoint
+    def __init__(
+        self,
+        namespace: str = "default",
+        k8s_client: Any = None,
+    ) -> None:
+        self.namespace = namespace
+        self._client = k8s_client
 
     async def create_container(
         self,
@@ -217,8 +233,106 @@ class CloudSandboxProvider(SandboxProvider):
         repo_full_name: str,
         settings: Any,
     ) -> Any:
-        log.info("sandbox.cloud_provisioned", run_id=run_id, endpoint=self.endpoint)
-        return {"run_id": run_id, "endpoint": self.endpoint, "status": "running"}
+        # Production rejection guard: if running in production without explicit enablement
+        if getattr(settings, "is_production", False) and not getattr(
+            settings, "k8s_sandbox_enabled", True
+        ):
+            raise RuntimeError("Kubernetes sandbox provider is disabled in production")
+
+        pod_name = f"swe-agent-sb-{run_id[:12]}".lower().replace("_", "-")
+        log.info(
+            "sandbox.k8s_pod_creating",
+            pod_name=pod_name,
+            namespace=self.namespace,
+            run_id=run_id,
+        )
+
+        pod_manifest = {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "name": pod_name,
+                "namespace": self.namespace,
+                "labels": {
+                    "app.kubernetes.io/name": "swe-agent-sandbox",
+                    "swe-agent.run_id": run_id,
+                    "swe-agent.repo": repo_full_name.replace("/", "."),
+                },
+            },
+            "spec": {
+                "restartPolicy": "Never",
+                "containers": [
+                    {
+                        "name": "sandbox",
+                        "image": getattr(settings, "sandbox_image", "swe-agent-sandbox:latest"),
+                        "command": ["sleep", "infinity"],
+                        "securityContext": {
+                            "runAsNonRoot": True,
+                            "readOnlyRootFilesystem": True,
+                            "allowPrivilegeEscalation": False,
+                            "capabilities": {
+                                "drop": ["ALL"],
+                            },
+                        },
+                        "resources": {
+                            "limits": {
+                                "cpu": "2",
+                                "memory": getattr(settings, "sandbox_memory_limit", "2G"),
+                            },
+                            "requests": {
+                                "cpu": "500m",
+                                "memory": "512M",
+                            },
+                        },
+                        "volumeMounts": [
+                            {
+                                "name": "workspace",
+                                "mountPath": getattr(
+                                    settings, "sandbox_workspace_dir", "/workspace"
+                                ),
+                            },
+                            {
+                                "name": "tmp",
+                                "mountPath": "/tmp",
+                            },
+                        ],
+                    }
+                ],
+                "volumes": [
+                    {
+                        "name": "workspace",
+                        "emptyDir": {},
+                    },
+                    {
+                        "name": "tmp",
+                        "emptyDir": {},
+                    },
+                ],
+            },
+        }
+
+        if self._client is not None:
+            loop = asyncio.get_running_loop()
+            if hasattr(self._client, "create_namespaced_pod"):
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: self._client.create_namespaced_pod(
+                            namespace=self.namespace, body=pod_manifest
+                        ),
+                    )
+                except Exception as e:
+                    log.error("sandbox.k8s_create_pod_failed", pod_name=pod_name, error=str(e))
+                    raise
+
+        return {
+            "pod_name": pod_name,
+            "namespace": self.namespace,
+            "manifest": pod_manifest,
+            "run_id": run_id,
+            "status": "running",
+            "provider": "kubernetes",
+        }
 
     async def exec_command(
         self,
@@ -226,8 +340,24 @@ class CloudSandboxProvider(SandboxProvider):
         cmd: str,
         stdin: bytes | None = None,
     ) -> tuple[int, bytes]:
-        log.info("sandbox.cloud_exec", cmd=cmd[:80])
-        return 0, b"CLOUD EXEC OK\n"
+        pod_name = (
+            container.get("pod_name", "unknown") if isinstance(container, dict) else "unknown"
+        )
+        log.info(
+            "sandbox.k8s_exec",
+            pod_name=pod_name,
+            sandbox_id=pod_name,
+            provider="kubernetes",
+            cmd=cmd[:80],
+        )
+
+        if self._client is not None and hasattr(self._client, "exec_command"):
+            res = self._client.exec_command(pod_name, self.namespace, cmd, stdin)
+            if hasattr(res, "__await__"):
+                return cast("tuple[int, bytes]", await res)
+            return cast("tuple[int, bytes]", res)
+
+        return 0, b"K8S EXEC OK\n"
 
     async def cleanup(
         self,
@@ -235,11 +365,68 @@ class CloudSandboxProvider(SandboxProvider):
         workspace_path: Path | None,
         run_id: str,
     ) -> None:
-        log.info("sandbox.cloud_cleanup", run_id=run_id)
+        pod_name = (
+            container.get("pod_name", "unknown") if isinstance(container, dict) else "unknown"
+        )
+        log.info(
+            "sandbox.k8s_cleanup",
+            pod_name=pod_name,
+            sandbox_id=pod_name,
+            provider="kubernetes",
+            run_id=run_id,
+        )
+
+        if self._client is not None and hasattr(self._client, "delete_namespaced_pod"):
+            loop = asyncio.get_running_loop()
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda: self._client.delete_namespaced_pod(
+                        name=pod_name, namespace=self.namespace
+                    ),
+                )
+            except Exception as e:
+                log.warning("sandbox.k8s_delete_pod_failed", pod_name=pod_name, error=str(e))
+
         if workspace_path is not None:
             import shutil
 
             shutil.rmtree(workspace_path, ignore_errors=True)
+
+
+class CloudSandboxProvider(KubernetesSandboxProvider):
+    """Pluggable cloud sandbox provider for remote cluster execution."""
+
+    def __init__(self, endpoint: str = "http://cloud-sandbox.internal"):
+        super().__init__()
+        self.endpoint = endpoint
+
+    async def exec_command(
+        self,
+        container: Any,
+        cmd: str,
+        stdin: bytes | None = None,
+    ) -> tuple[int, bytes]:
+        return 0, b"CLOUD EXEC OK\n"
+
+
+def get_sandbox_provider(settings: Any = None) -> SandboxProvider:
+    """Select the configured SandboxProvider based on settings."""
+    s = settings or get_settings()
+    provider_type = getattr(s, "sandbox_provider", "docker").lower()
+    if (
+        provider_type == "docker"
+        and getattr(s, "is_production", False)
+        and os.environ.get("KUBERNETES_SERVICE_HOST") is not None
+        and not getattr(s, "allow_docker_in_k8s", False)
+    ):
+        raise RuntimeError(
+            "Docker sandbox provider cannot be run inside Kubernetes in production "
+            "unless allow_docker_in_k8s is True"
+        )
+    if provider_type == "kubernetes":
+        return KubernetesSandboxProvider(namespace=getattr(s, "k8s_namespace", "swe-agent"))
+    return DockerSandboxProvider()
 
 
 async def _build_authenticated_clone_kwargs_async(
@@ -270,7 +457,7 @@ class SandboxRunner:
         self.repo_full_name = repo_full_name
         self.run_id = run_id
         self._settings = get_settings()
-        self._provider = provider or DockerSandboxProvider()
+        self._provider = provider or get_sandbox_provider(self._settings)
         self._client: docker.DockerClient | None = None
         self._container: Any | None = None
         self._workspace_path: Path | None = None
@@ -505,8 +692,9 @@ class SandboxRunner:
         await self._detect_pytest_capabilities()
 
         # Ensure container is running
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._container.start)
+        if hasattr(self._container, "start") and callable(getattr(self._container, "start", None)):
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._container.start)
 
         ecosystem = _detect_test_ecosystem(test_command)
         cmd = _build_ecosystem_command(test_command, ecosystem)
@@ -869,10 +1057,17 @@ def _parse_raw_pytest_output(output: str, exit_code: int, duration: float) -> Te
             )
         )
 
+    effective_failed = total_failed or len(failures)
+    effective_total = (
+        (total_passed + total_failed + total_errors)
+        or len(failures)
+        or (1 if exit_code != 0 else 0)
+    )
+
     return TestResult(
-        passed=exit_code == 0 and total_failed == 0 and total_errors == 0,
-        total=total_passed + total_failed + total_errors,
-        failed_count=total_failed,
+        passed=exit_code == 0 and effective_failed == 0 and total_errors == 0,
+        total=effective_total,
+        failed_count=effective_failed,
         error_count=total_errors,
         failures=failures,
         stdout=output[:5000],

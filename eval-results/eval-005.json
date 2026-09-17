@@ -1,0 +1,19 @@
+{
+  "eval_id": "eval-005",
+  "repo": "tiangolo/fastapi",
+  "issue_number": 9410,
+  "model": "claude-3-7-sonnet-20250219",
+  "status": "partial",
+  "retries": 3,
+  "duration_seconds": 110.5,
+  "tokens_used": 42000,
+  "cost_usd": 0.252,
+  "tests_passed": false,
+  "date": "2026-04-10",
+  "timestamp": "2026-04-10T15:30:00Z",
+  "commit_sha": "f55111728222e84368f9cc05853ee65c7eb15d32",
+  "issue": 9410,
+  "result": "partial",
+  "pr_url": "https://github.com/tiangolo/fastapi/pull/9411",
+  "logs": "Task eval-005 on tiangolo/fastapi#9410 completed with result partial. Plan created, patches applied, test suite executed in container sandbox. Tokens used: 42000, cost: $0.252."
+}

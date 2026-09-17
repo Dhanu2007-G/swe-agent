@@ -19,23 +19,5 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO swe_agent_re
 -- Performance: ensure pg_stat_statements is available for query analysis
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
--- Useful indexes for common dashboard queries
--- (applied after table creation by alembic, added here as reference)
+-- Note: Views and app tables are managed via Alembic migrations.
 
--- Useful view for run analytics
-CREATE OR REPLACE VIEW run_stats AS
-SELECT
-    date_trunc('day', created_at) AS day,
-    repo_full_name,
-    status,
-    COUNT(*) AS total_runs,
-    AVG(retry_count) AS avg_retries,
-    AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) AS avg_duration_seconds,
-    SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END)::float /
-        NULLIF(COUNT(*), 0) * 100 AS solve_rate_pct
-FROM agent_runs
-WHERE completed_at IS NOT NULL
-GROUP BY 1, 2, 3
-ORDER BY 1 DESC, 4 DESC;
-
-GRANT SELECT ON run_stats TO swe_agent_readonly;

@@ -576,6 +576,92 @@ async def correct_node(state: AgentState) -> dict[str, Any]:
     }
 
 
+# ── Node: Read Review ─────────────────────────────────────────────────────────
+
+
+async def read_review_node(state: AgentState) -> dict[str, Any]:
+    """
+    Ingests PR details and review comments for review refinement jobs.
+    Loads PR context, review comment details, and sets up state for refinement.
+    """
+    from src.tools.github import GitHubClient
+
+    run_id: str = state["run_id"]
+    repo_full_name: str = str(
+        state.get("repo_full_name") or (state["issue"].repo_full_name if "issue" in state else "")
+    )
+    pr_number: int = state.get("pr_number", 0)
+    comment_id: int | None = state.get("review_comment_id")
+
+    log.info("read_review.start", run_id=run_id, repo=repo_full_name, pr=pr_number)
+
+    feedback = state.get("review_feedback") or ""
+    head_branch = state.get("branch_name") or ""
+    issue = state.get("issue")
+
+    async with GitHubClient() as github:
+        if repo_full_name and pr_number:
+            try:
+                pr_info = await github.get_pull_request(repo_full_name, pr_number)
+                head_branch = pr_info.get("head_branch") or head_branch
+                if not issue:
+                    issue = GithubIssue(
+                        issue_number=pr_number,
+                        repo_full_name=repo_full_name,
+                        title=pr_info.get("title", f"PR #{pr_number}"),
+                        body=pr_info.get("body", ""),
+                        labels=[],
+                        comments=[],
+                        assignees=[],
+                        created_at=datetime.now(UTC),
+                        html_url=pr_info.get(
+                            "html_url", f"https://github.com/{repo_full_name}/pull/{pr_number}"
+                        ),
+                    )
+            except Exception as e:
+                log.warning("read_review.get_pr_failed", error=str(e))
+
+            if comment_id:
+                try:
+                    comment_info = await github.get_review_comment(
+                        repo_full_name, pr_number, comment_id
+                    )
+                    path = comment_info.get("path", "")
+                    body = comment_info.get("body", "")
+                    diff_hunk = comment_info.get("diff_hunk", "")
+                    line = comment_info.get("line")
+                    comment_text = f"File: {path}"
+                    if line:
+                        comment_text += f":{line}"
+                    if diff_hunk:
+                        comment_text += f"\nDiff hunk:\n{diff_hunk}"
+                    comment_text += f"\nReview Comment:\n{body}"
+                    feedback = f"{feedback}\n\n{comment_text}".strip() if feedback else comment_text
+                except Exception as e:
+                    log.warning("read_review.get_comment_failed", error=str(e))
+
+    if not issue:
+        issue = GithubIssue(
+            issue_number=pr_number,
+            repo_full_name=repo_full_name or "unknown/repo",
+            title=f"Review refinement for PR #{pr_number}",
+            body=feedback,
+            labels=[],
+            comments=[],
+            assignees=[],
+            created_at=datetime.now(UTC),
+            html_url=f"https://github.com/{repo_full_name}/pull/{pr_number}",
+        )
+
+    return {
+        "issue": issue,
+        "branch_name": head_branch,
+        "review_feedback": feedback,
+        "repo_full_name": repo_full_name,
+        "status": RunStatus.RUNNING.value,
+    }
+
+
 # ── Node: Refine From Review ──────────────────────────────────────────────────
 
 
@@ -667,19 +753,22 @@ async def open_pr_node(state: AgentState) -> dict[str, Any]:
         )
 
     # ── Create branch and open PR ─────────────────────────────────────────────
-    branch_name = f"swe-agent/issue-{issue.issue_number}-{run_id[:8]}"
+    is_refinement = state.get("job_type") == "review_refinement"
+    branch_name = state.get("branch_name") or f"swe-agent/issue-{issue.issue_number}-{run_id[:8]}"
+    existing_pr_num = state.get("pr_number") if is_refinement else None
 
     async with GitHubClient() as github:
         pr = await github.create_pull_request(
             repo_full_name=issue.repo_full_name,
             branch_name=branch_name,
-            base_branch="main",
+            base_branch=None,
             title=f"fix: resolve #{issue.issue_number} -- {issue.title[:60]}",
             body=pr_body,
             patches=patch.patches,
             issue_number=issue.issue_number,
             labels=[settings.github_pr_label] + (["draft"] if is_draft else []),
             draft=is_draft,
+            existing_pr_number=existing_pr_num,
         )
 
     status = RunStatus.PARTIAL if is_draft else RunStatus.SUCCEEDED

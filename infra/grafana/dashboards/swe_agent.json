@@ -204,8 +204,64 @@
       ]
     },
     {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "color": {"mode": "palette-classic"}}},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 26},
+      "id": 22,
+      "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "list"}},
+      "title": "Cost Per Run ($ USD)",
+      "type": "timeseries",
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "histogram_quantile(0.5, sum(rate(swe_agent_run_cost_usd_bucket[5m])) by (le))", "legendFormat": "p50 cost", "refId": "A"},
+        {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "histogram_quantile(0.95, sum(rate(swe_agent_run_cost_usd_bucket[5m])) by (le))", "legendFormat": "p95 cost", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 26},
+      "id": 23,
+      "options": {"legend": {"displayMode": "list"}},
+      "title": "Queue Depth & Latency",
+      "type": "timeseries",
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "swe_agent_queue_depth", "legendFormat": "{{queue_name}} depth", "refId": "A"}
+      ]
+    },
+    {
       "collapsed": false,
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 25},
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 34},
+      "id": 500,
+      "title": "Sandbox & Failure Analytics",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 35},
+      "id": 40,
+      "options": {"legend": {"displayMode": "list"}},
+      "title": "Failure Categories",
+      "type": "timeseries",
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum by (status) (rate(swe_agent_runs_total{status=~\"failed|partial\"}[5m]))", "legendFormat": "{{status}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "palette-classic"}}},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 35},
+      "id": 41,
+      "options": {"legend": {"displayMode": "list"}},
+      "title": "Sandbox Duration & Failure Rate",
+      "type": "timeseries",
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "histogram_quantile(0.9, sum(rate(swe_agent_sandbox_execution_seconds_bucket[5m])) by (le))", "legendFormat": "p90 duration", "refId": "A"}
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 43},
       "id": 400,
       "title": "HTTP API",
       "type": "row"
@@ -213,7 +269,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "reqps", "color": {"mode": "palette-classic"}}},
-      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 26},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 44},
       "id": 30,
       "options": {"legend": {"displayMode": "list"}},
       "title": "API Request Rate",
@@ -225,7 +281,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "palette-classic"}}},
-      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 26},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 44},
       "id": 31,
       "options": {"legend": {"displayMode": "list"}},
       "title": "API Latency p95",

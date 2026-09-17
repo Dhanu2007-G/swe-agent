@@ -133,6 +133,55 @@ class GitHubClient:
 
     # ── Pull Request Operations ───────────────────────────────────────────────
 
+    async def get_pull_request(
+        self,
+        repo_full_name: str,
+        pr_number: int,
+    ) -> dict[str, Any]:
+        """Fetch pull request details including branch, title, body, and changed files."""
+
+        def _fetch() -> dict[str, Any]:
+            assert self._gh is not None
+            repo = self._gh.get_repo(repo_full_name)
+            pr = repo.get_pull(pr_number)
+            files = [f.filename for f in pr.get_files()]
+            return {
+                "pr_number": pr.number,
+                "title": pr.title,
+                "body": pr.body or "",
+                "head_branch": pr.head.ref,
+                "base_branch": pr.base.ref,
+                "diff_files": files,
+                "html_url": pr.html_url,
+                "head_sha": pr.head.sha,
+            }
+
+        return cast("dict[str, Any]", await self._with_retry(_fetch))
+
+    async def get_review_comment(
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        comment_id: int,
+    ) -> dict[str, Any]:
+        """Fetch a specific review comment on a pull request."""
+
+        def _fetch() -> dict[str, Any]:
+            assert self._gh is not None
+            repo = self._gh.get_repo(repo_full_name)
+            pr = repo.get_pull(pr_number)
+            comment = pr.get_review_comment(comment_id)
+            return {
+                "id": comment.id,
+                "body": comment.body,
+                "path": comment.path,
+                "diff_hunk": getattr(comment, "diff_hunk", ""),
+                "line": getattr(comment, "line", None) or getattr(comment, "original_line", None),
+                "commit_id": getattr(comment, "commit_id", ""),
+            }
+
+        return cast("dict[str, Any]", await self._with_retry(_fetch))
+
     async def create_pull_request(
         self,
         repo_full_name: str,
@@ -144,25 +193,32 @@ class GitHubClient:
         issue_number: int = 0,
         labels: list[str] | None = None,
         draft: bool = False,
+        existing_pr_number: int | None = None,
     ) -> PullRequest:
         """
-        Create branch, commit patches, and open a PR.
-        Steps: clone → checkout branch → apply patches → commit → push → open PR.
+        Create branch, commit patches, and open a PR or update an existing PR.
+        Steps: clone → checkout branch → apply patches → commit → push → open/update PR.
         """
         settings = self._settings
 
         def _create() -> PullRequest:
+            import base64
             import tempfile
             from pathlib import Path
 
             assert self._gh is not None
             gh_repo = self._gh.get_repo(repo_full_name)
 
-            # Determine base branch
-            target_base = base_branch or gh_repo.default_branch
-
-            # Get default branch SHA for branching
-            default_sha = gh_repo.get_branch(target_base).commit.sha
+            existing_pr: Any = None
+            if existing_pr_number is not None:
+                existing_pr = gh_repo.get_pull(existing_pr_number)
+                actual_branch = existing_pr.head.ref
+                target_base = existing_pr.base.ref
+                default_sha = existing_pr.head.sha
+            else:
+                actual_branch = branch_name
+                target_base = base_branch or gh_repo.default_branch
+                default_sha = gh_repo.get_branch(target_base).commit.sha
 
             # Check push permissions to target repository
             has_push = False
@@ -174,7 +230,7 @@ class GitHubClient:
                 has_push = False
 
             is_fork = False
-            head_ref = branch_name
+            head_ref = actual_branch
             fork_repo_name: str | None = None
             fork_repo: Any = None
 
@@ -184,21 +240,46 @@ class GitHubClient:
                     fork_repo = user.create_fork(gh_repo)
                     is_fork = True
                     fork_repo_name = getattr(fork_repo, "full_name", f"{user.login}/{gh_repo.name}")
-                    head_ref = f"{user.login}:{branch_name}"
+                    head_ref = f"{user.login}:{actual_branch}"
                     log.info("github.fork_created", fork=fork_repo_name, upstream=repo_full_name)
+                    # GitHub forks are created asynchronously; wait/retry until accessible
+                    import time
+
+                    for _ in range(5):
+                        try:
+                            _ = self._gh.get_repo(fork_repo_name)
+                            break
+                        except Exception:
+                            time.sleep(1)
                 except Exception as e:
                     log.warning("github.fork_attempt_failed", error=str(e))
 
-            # Create remote branch via API on target repo (or fork if not writeable)
-            branch_target = fork_repo if is_fork and fork_repo is not None else gh_repo
-            try:
-                branch_target.create_git_ref(
-                    ref=f"refs/heads/{branch_name}",
-                    sha=default_sha,
-                )
-            except GithubException as e:
-                if getattr(e, "status", None) != 422:  # 422 = branch already exists
-                    raise
+            if existing_pr is None:
+                # Create remote branch via API on target repo (or fork if not writeable)
+                branch_target = fork_repo if is_fork and fork_repo is not None else gh_repo
+                try:
+                    branch_target.create_git_ref(
+                        ref=f"refs/heads/{actual_branch}",
+                        sha=default_sha,
+                    )
+                except GithubException as e:
+                    if getattr(e, "status", None) == 422:
+                        # Branch collision: append unique suffix to avoid collision
+                        import uuid
+
+                        actual_branch = f"{actual_branch}-{uuid.uuid4().hex[:6]}"
+                        if is_fork and fork_repo_name:
+                            user_login = fork_repo_name.split("/")[0]
+                            head_ref = f"{user_login}:{actual_branch}"
+                        else:
+                            head_ref = actual_branch
+                        with suppress(Exception):
+                            branch_target.create_git_ref(
+                                ref=f"refs/heads/{actual_branch}",
+                                sha=default_sha,
+                            )
+                    else:
+                        raise
 
             # Clone locally to apply patches
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -207,7 +288,13 @@ class GitHubClient:
                 repo = git.Repo.clone_from(
                     clone_url, tmpdir, allow_unsafe_options=True, **clone_kwargs
                 )
-                repo.git.checkout("-b", branch_name)
+                if existing_pr is not None:
+                    try:
+                        repo.git.checkout(actual_branch)
+                    except Exception:
+                        repo.git.checkout("-b", actual_branch)
+                else:
+                    repo.git.checkout("-b", actual_branch)
 
                 # Configure git identity
                 repo.config_writer().set_value(
@@ -224,22 +311,49 @@ class GitHubClient:
                 # Commit all changes
                 repo.git.add(A=True)
                 if repo.is_dirty():
-                    repo.index.commit(
-                        f"fix: automated fix for #{issue_number}\n\n"
-                        f"Applied by swe-agent\n"
-                        f"Issue: https://github.com/{repo_full_name}/issues/{issue_number}"
+                    commit_msg = (
+                        f"fix(review): address review comments on PR #{existing_pr_number}\n\n"
+                        f"Applied by swe-agent"
+                        if existing_pr is not None
+                        else (
+                            f"fix: automated fix for #{issue_number}\n\n"
+                            f"Applied by swe-agent\n"
+                            f"Issue: https://github.com/{repo_full_name}/issues/{issue_number}"
+                        )
                     )
+                    repo.index.commit(commit_msg)
 
-                # Push: if is_fork, push to the fork remote
                 origin = repo.remote("origin")
                 if is_fork and fork_repo_name:
-                    token = settings.github_token_value
-                    fork_url = f"https://x-access-token:{token}@github.com/{fork_repo_name}.git"
+                    fork_url = f"https://github.com/{fork_repo_name}.git"
                     repo.create_remote("fork", fork_url)
                     fork_remote = repo.remote("fork")
-                    fork_remote.push(refspec=f"{branch_name}:{branch_name}", force=False)
+                    token = settings.github_token_value
+                    auth_bytes = f"x-access-token:{token}".encode()
+                    auth_b64 = base64.b64encode(auth_bytes).decode()
+                    with suppress(Exception):
+                        repo.git.config(
+                            f"http.https://github.com/{fork_repo_name}.git.extraHeader",
+                            f"AUTHORIZATION: basic {auth_b64}",
+                        )
+                    fork_remote.push(refspec=f"{actual_branch}:{actual_branch}", force=False)
                 else:
-                    origin.push(refspec=f"{branch_name}:{branch_name}", force=False)
+                    origin.push(refspec=f"{actual_branch}:{actual_branch}", force=False)
+
+            if existing_pr is not None:
+                existing_pr.create_issue_comment(
+                    f"swe-agent has updated branch `{actual_branch}` with review refinements."
+                )
+                return PullRequest(
+                    pr_number=existing_pr.number,
+                    pr_url=existing_pr.html_url,
+                    branch_name=actual_branch,
+                    is_draft=getattr(existing_pr, "draft", False),
+                    title=existing_pr.title,
+                    body=existing_pr.body or "",
+                    is_fork=is_fork,
+                    fork_repo_full_name=fork_repo_name,
+                )
 
             # Open PR via API
             gh_pr: GHPullRequest = gh_repo.create_pull(
@@ -270,10 +384,12 @@ class GitHubClient:
             return PullRequest(
                 pr_number=gh_pr.number,
                 pr_url=gh_pr.html_url,
-                branch_name=branch_name,
+                branch_name=actual_branch,
                 is_draft=draft,
                 title=title,
                 body=body,
+                is_fork=is_fork,
+                fork_repo_full_name=fork_repo_name,
             )
 
         return cast("PullRequest", await self._with_retry(_create))

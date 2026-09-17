@@ -76,6 +76,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     log.info("app.starting", env=getattr(settings, "app_env", "development"))
 
+    # Production safety check: Reject startup in production if auth is disabled or keys missing
+    if getattr(settings, "is_production", False) and (
+        not getattr(settings, "api_auth_enabled", True) or not getattr(settings, "api_keys", [])
+    ):
+        raise RuntimeError(
+            "Production environment requires API_AUTH_ENABLED=true and non-empty API_KEYS"
+        )
+
     # Verify dependencies are reachable (tolerant to offline redis in test/mock mode)
     try:
         redis = await get_redis_connection()

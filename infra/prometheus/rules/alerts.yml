@@ -49,6 +49,15 @@ groups:
 
       # ── Queue depth ────────────────────────────────────────────────────────
 
+      - alert: SWEAgentHighQueueDepth
+        expr: swe_agent_queue_depth > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SWE Agent queue depth > 50 jobs"
+          description: "RQ queue has {{ $value }} pending jobs. Workers may be backlogged or stuck."
+
       - alert: SWEAgentNoActiveWorkers
         expr: swe_agent_active_runs == 0
         for: 5m
@@ -73,7 +82,7 @@ groups:
           summary: "SWE Agent API error rate > 5%"
           description: "HTTP 5xx error rate is {{ $value | humanizePercentage }}."
 
-      # ── Token cost ─────────────────────────────────────────────────────────
+      # ── Token & Run Cost ───────────────────────────────────────────────────
 
       - alert: SWEAgentHighTokenUsage
         expr: |
@@ -86,3 +95,66 @@ groups:
         annotations:
           summary: "SWE Agent p95 token usage > 200k per run"
           description: "Runs are consuming {{ $value | humanize }} tokens at p95. Review prompt sizes and context loading."
+
+      - alert: SWEAgentCostThresholdExceeded
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(swe_agent_run_cost_usd_bucket[1h])) by (le)
+          ) > 2.50
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SWE Agent cost per run exceeds $2.50 threshold"
+          description: "p95 run cost is ${{ $value | humanize }} USD, nearing budget limit."
+
+      # ── Operational Faults ─────────────────────────────────────────────────
+
+      - alert: SWEAgentSandboxFailureSpike
+        expr: |
+          sum(rate(swe_agent_sandbox_execution_seconds_count[10m])) > 0
+          and
+          (
+            sum(rate(swe_agent_runs_total{status="failed"}[10m]))
+            /
+            sum(rate(swe_agent_runs_total[10m]))
+          ) > 0.4
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Spike in sandbox execution failures"
+          description: "Over 40% of sandbox executions failed over the last 10m. Check container runtime / k8s node status."
+
+      - alert: SWEAgentGitHubAPIFailures
+        expr: |
+          sum(rate(http_requests_total{endpoint=~".*github.*", status=~"4..|5.."}[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GitHub API communication failures detected"
+          description: "GitHub API request failures are elevated. Verify rate limits, credentials, or webhook endpoints."
+
+      - alert: SWEAgentLLMFailures
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(swe_agent_llm_request_duration_seconds_bucket[5m])) by (le)
+          ) > 60
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LLM provider latency or failure spike"
+          description: "p99 LLM request duration is {{ $value | humanizeDuration }}. Check provider status."
+
+      - alert: SWEAgentDatabaseUnavailable
+        expr: |
+          http_requests_total{endpoint="/health/ready", status="503"} > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SWE Agent PostgreSQL or Redis dependency unavailable"
+          description: "/health/ready is reporting 503 Service Unavailable. Database or cache connection failed."
+

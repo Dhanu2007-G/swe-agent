@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: swe-agent-worker
+  namespace: swe-agent
+  labels:
+    app: swe-agent-worker
+    component: worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: swe-agent-worker
+  template:
+    metadata:
+      labels:
+        app: swe-agent-worker
+        component: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      containers:
+        - name: worker
+          image: ghcr.io/swe-agent/swe-agent:latest
+          command:
+            - python
+            - -m
+            - src.worker.entrypoint
+          envFrom:
+            - configMapRef:
+                name: swe-agent-config
+            - secretRef:
+                name: swe-agent-secrets
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

@@ -1,0 +1,19 @@
+{
+  "eval_id": "eval-002",
+  "repo": "pallets/flask",
+  "issue_number": 4982,
+  "model": "claude-3-7-sonnet-20250219",
+  "status": "succeeded",
+  "retries": 0,
+  "duration_seconds": 32.1,
+  "tokens_used": 11500,
+  "cost_usd": 0.069,
+  "tests_passed": true,
+  "date": "2026-04-10",
+  "timestamp": "2026-04-10T12:30:00Z",
+  "commit_sha": "f55111728222e84368f9cc05853ee65c7eb15d32",
+  "issue": 4982,
+  "result": "succeeded",
+  "pr_url": "https://github.com/pallets/flask/pull/4983",
+  "logs": "Task eval-002 on pallets/flask#4982 completed with result succeeded. Plan created, patches applied, test suite executed in container sandbox. Tokens used: 11500, cost: $0.069."
+}

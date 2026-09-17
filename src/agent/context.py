@@ -353,9 +353,55 @@ def _extract_symbols_ast(content: str, language: str) -> list[Symbol]:
         try:
             return _extract_python_symbols_treesitter(content)
         except Exception as e:
-            log.debug("context.treesitter_failed", error=str(e))
+            log.debug("context.treesitter_failed", language=language, error=str(e))
             return _extract_python_symbols_regex(content)
-    return _extract_generic_symbols_regex(content, language)
+
+    if language in _GRAMMAR_MODULES:
+        try:
+            parser = _get_treesitter_parser(language)
+            return _extract_generic_symbols_treesitter(content, parser, language)
+        except Exception as e:
+            log.debug("context.treesitter_failed", language=language, error=str(e))
+
+    return _extract_polyglot_symbols_regex(content, language)
+
+
+def _extract_generic_symbols_treesitter(content: str, parser: Any, language: str) -> list[Symbol]:
+    """Extract AST symbols for polyglot languages using tree-sitter."""
+    tree = parser.parse(content.encode())
+    symbols: list[Symbol] = []
+    target_types = {
+        "function_declaration",
+        "method_declaration",
+        "class_declaration",
+        "interface_declaration",
+        "type_alias_declaration",
+        "type_declaration",
+        "function_item",
+        "struct_item",
+        "enum_item",
+        "trait_item",
+    }
+
+    def _walk(node: Any) -> None:
+        if node.type in target_types:
+            name_node = node.child_by_field_name("name")
+            name = name_node.text.decode() if name_node else "unknown"
+            kind = "class" if ("class" in node.type or "struct" in node.type) else "function"
+            symbols.append(
+                Symbol(
+                    name=name,
+                    kind=kind,
+                    start_line=node.start_point[0],
+                    end_line=node.end_point[0],
+                    signature=f"{kind} {name}",
+                )
+            )
+        for child in node.children:
+            _walk(child)
+
+    _walk(tree.root_node)
+    return symbols
 
 
 def _extract_python_symbols_treesitter(content: str) -> list[Symbol]:
@@ -468,36 +514,76 @@ def _extract_python_symbols_regex(content: str) -> list[Symbol]:
     return symbols
 
 
-def _extract_generic_symbols_regex(content: str, language: str) -> list[Symbol]:
-    """Very basic symbol extraction for non-Python languages."""
-    symbols: list[Symbol] = []
-    patterns = {
-        "javascript": (
-            r"(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*="
-            r"\s*(?:async\s+)?(?:\([^)]*\)|[\w]+)\s*=>)"
-        ),
-        "typescript": r"(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=)",
-        "go": r"^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)\s*\(",
-        "java": r"(?:public|private|protected|static|\s)+[\w<>\[\]]+\s+(\w+)\s*\(",
-    }
-    pattern = patterns.get(language)
-    if not pattern:
-        return []
+def _find_brace_block_end(lines: list[str], start: int) -> int:
+    """Find the matching closing brace line for a block starting at `start`."""
+    open_count = 0
+    found_any = False
+    for i in range(start, len(lines)):
+        line = lines[i]
+        open_count += line.count("{") - line.count("}")
+        if "{" in line:
+            found_any = True
+        if found_any and open_count <= 0:
+            return i
+    return min(start + 20, len(lines) - 1)
 
-    for i, line in enumerate(content.splitlines()):
-        m = re.search(pattern, line)
-        if m:
-            name = next((g for g in m.groups() if g), "unknown")
-            symbols.append(
-                Symbol(
-                    name=name,
-                    kind="function",
-                    start_line=i,
-                    end_line=i + 20,
-                    signature=line.strip()[:80],
+
+def _extract_polyglot_symbols_regex(content: str, language: str) -> list[Symbol]:
+    """Rich symbol extraction for polyglot languages using regex."""
+    symbols: list[Symbol] = []
+    lang = language.lower()
+    lines = content.splitlines()
+
+    patterns: list[tuple[str, str]] = []
+    if lang in ("javascript", "typescript", "jsx", "tsx"):
+        patterns = [
+            (r"(?:export\s+)?(?:default\s+)?class\s+(\w+)", "class"),
+            (r"(?:export\s+)?interface\s+(\w+)", "interface"),
+            (r"(?:export\s+)?type\s+(\w+)\s*=", "type"),
+            (r"(?:export\s+)?(?:async\s+)?function\s+(\w+)", "function"),
+            (r"(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(", "function"),
+        ]
+    elif lang == "go":
+        patterns = [
+            (r"^type\s+(\w+)\s+struct", "struct"),
+            (r"^type\s+(\w+)\s+interface", "interface"),
+            (r"^func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(", "function"),
+        ]
+    elif lang == "rust":
+        patterns = [
+            (r"^\s*(?:pub\s+)?struct\s+(\w+)", "struct"),
+            (r"^\s*(?:pub\s+)?enum\s+(\w+)", "enum"),
+            (r"^\s*(?:pub\s+)?trait\s+(\w+)", "trait"),
+            (r"^\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)", "function"),
+        ]
+    elif lang == "java":
+        patterns = [
+            (r"(?:public|protected|private)?\s*(?:static\s+)?class\s+(\w+)", "class"),
+            (r"(?:public|protected|private)?\s*(?:static\s+)?interface\s+(\w+)", "interface"),
+            (r"(?:public|protected|private|static|\s)+[\w<>\[\]]+\s+(\w+)\s*\(", "method"),
+        ]
+
+    for i, line in enumerate(lines):
+        for pat, kind in patterns:
+            m = re.search(pat, line)
+            if m:
+                name = m.group(1)
+                end_line = _find_brace_block_end(lines, i)
+                symbols.append(
+                    Symbol(
+                        name=name,
+                        kind=kind,
+                        start_line=i,
+                        end_line=end_line,
+                        signature=line.strip()[:80],
+                    )
                 )
-            )
+                break
+
     return symbols
+
+
+_extract_generic_symbols_regex = _extract_polyglot_symbols_regex
 
 
 def _find_block_end(lines: list[str], start: int) -> int:

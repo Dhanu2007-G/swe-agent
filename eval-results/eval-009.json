@@ -1,0 +1,19 @@
+{
+  "eval_id": "eval-009",
+  "repo": "tokio-rs/tokio",
+  "issue_number": 4120,
+  "model": "claude-3-7-sonnet-20250219",
+  "status": "failed",
+  "retries": 3,
+  "duration_seconds": 125.0,
+  "tokens_used": 48000,
+  "cost_usd": 0.288,
+  "tests_passed": false,
+  "date": "2026-04-11",
+  "timestamp": "2026-04-10T19:30:00Z",
+  "commit_sha": "f55111728222e84368f9cc05853ee65c7eb15d32",
+  "issue": 4120,
+  "result": "failed",
+  "pr_url": null,
+  "logs": "Task eval-009 on tokio-rs/tokio#4120 completed with result failed. Plan created, patches applied, test suite executed in container sandbox. Tokens used: 48000, cost: $0.288."
+}

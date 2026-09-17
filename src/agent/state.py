@@ -210,6 +210,8 @@ class PullRequest(BaseModel):
     is_draft: bool = False
     title: str
     body: str
+    is_fork: bool = False
+    fork_repo_full_name: str | None = None
 
 
 class AttemptRecord(BaseModel):
@@ -234,6 +236,12 @@ class AgentState(TypedDict, total=False):
     # Input
     run_id: str
     issue: GithubIssue
+    job_type: str  # "issue" | "review_refinement"
+    repo_full_name: str
+    pr_number: int
+    review_comment_id: int
+    parent_run_id: str | None
+    branch_name: str
 
     # Planning
     plan: TaskPlan

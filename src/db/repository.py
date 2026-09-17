@@ -26,18 +26,26 @@ class RunRepository:
         issue_number: int,
         status: str = "running",
         started_at: datetime | None = None,
+        job_type: str = "issue",
+        pr_number: int | None = None,
+        review_comment_id: int | None = None,
+        parent_run_id: str | None = None,
     ) -> AgentRun:
         async for session in get_session():
             run = AgentRun(
                 run_id=run_id,
                 repo_full_name=repo_full_name,
                 issue_number=issue_number,
+                job_type=job_type,
                 status=status,
+                pr_number=pr_number,
+                review_comment_id=review_comment_id,
+                parent_run_id=parent_run_id,
                 started_at=started_at or datetime.now(UTC),
             )
             session.add(run)
             await session.flush()
-            log.info("db.run_created", run_id=run_id)
+            log.info("db.run_created", run_id=run_id, job_type=job_type)
             return run
         raise RuntimeError("Session exhausted")
 
@@ -73,15 +81,21 @@ class RunRepository:
         run_id: str,
         status: str,
         pr_url: str | None = None,
+        pr_number: int | None = None,
         retry_count: int = 0,
         failure_reason: str | None = None,
         completed_at: datetime | None = None,
         state_snapshot: str | None = None,
         started_at: datetime | None = None,
+        job_type: str | None = None,
+        review_comment_id: int | None = None,
+        parent_run_id: str | None = None,
     ) -> None:
         values: dict[str, Any] = {"status": status, "retry_count": retry_count}
         if pr_url:
             values["pr_url"] = pr_url
+        if pr_number is not None:
+            values["pr_number"] = pr_number
         if failure_reason:
             values["failure_reason"] = failure_reason[:500]
         if completed_at:
@@ -90,6 +104,12 @@ class RunRepository:
             values["state_snapshot"] = state_snapshot
         if started_at:
             values["started_at"] = started_at
+        if job_type is not None:
+            values["job_type"] = job_type
+        if review_comment_id is not None:
+            values["review_comment_id"] = review_comment_id
+        if parent_run_id is not None:
+            values["parent_run_id"] = parent_run_id
 
         async for session in get_session():
             await session.execute(

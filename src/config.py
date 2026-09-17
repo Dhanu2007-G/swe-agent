@@ -8,7 +8,7 @@ from __future__ import annotations
 import secrets
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import AnyHttpUrl, Field, PostgresDsn, RedisDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     github_bot_username: str = "swe-agent[bot]"
     github_pr_label: str = "automated-pr"
 
+    # ── API Security ─────────────────────────────────────────────────────────
+    api_auth_enabled: bool = True
+    api_keys: list[str] = Field(default_factory=lambda: ["swe-agent-dev-key-12345"])
+    allowed_repositories: list[str] = Field(
+        default_factory=list,
+        description="Optional repo allowlist (e.g. ['owner/repo']). Empty allows all.",
+    )
+
     # ── Database ─────────────────────────────────────────────────────────────
     database_url: PostgresDsn = Field(
         default=PostgresDsn("postgresql+asyncpg://dev_user:dev_pass@localhost:5432/swe_agent_dev")
@@ -71,19 +79,27 @@ class Settings(BaseSettings):
     database_pool_size: int = Field(default=10, ge=2, le=50)
     database_max_overflow: int = Field(default=20, ge=0, le=100)
     database_echo: bool = False
+    database_auto_create_tables: bool = Field(
+        default=False,
+        description="Run create_all() on startup for dev/test only. Disallowed in production.",
+    )
 
     # ── Redis ────────────────────────────────────────────────────────────────
     redis_url: RedisDsn = RedisDsn("redis://redis:6379/0")
     redis_job_timeout: int = Field(default=1800, ge=60)  # 30 min max per job
     redis_result_ttl: int = Field(default=86400, ge=3600)  # 1 day
 
-    # ── Docker Sandbox ───────────────────────────────────────────────────────
+    # ── Sandbox ──────────────────────────────────────────────────────────────
+    sandbox_provider: Literal["docker", "kubernetes"] = "docker"
     sandbox_image: str = "swe-agent-sandbox:latest"
     sandbox_memory_limit: str = "512m"
     sandbox_cpu_quota: int = Field(default=50000, ge=10000)  # 50% of one CPU
     sandbox_timeout_seconds: int = Field(default=120, ge=30, le=600)
     sandbox_network_disabled: bool = True
     sandbox_workspace_dir: str = "/workspace"
+    k8s_namespace: str = "swe-agent"
+    k8s_api_server_url: str | None = None
+    allow_docker_in_k8s: bool = False
 
     # ── Deployment ────────────────────────────────────────────────────────────
     allowed_hosts: list[str] = Field(
@@ -115,6 +131,20 @@ class Settings(BaseSettings):
         if isinstance(v, str) and v.startswith("postgresql://"):
             return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
+
+    @field_validator("api_keys", mode="before")
+    @classmethod
+    def parse_api_keys(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            return [k.strip() for k in v.split(",") if k.strip()]
+        return v  # type: ignore[no-any-return]
+
+    @field_validator("allowed_repositories", mode="before")
+    @classmethod
+    def parse_allowed_repositories(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            return [r.strip() for r in v.split(",") if r.strip()]
+        return v  # type: ignore[no-any-return]
 
     @property
     def is_production(self) -> bool:

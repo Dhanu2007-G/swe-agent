@@ -6,7 +6,7 @@ Validates HMAC signature, filters relevant events, enqueues jobs idempotently.
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Header, HTTPException, Request, status
@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 import src.worker.queue as queue_module
 from src.api.rate_limit import WEBHOOK_LIMITER
+from src.config import get_settings
 from src.db.repository import RunRepository
 from src.tools.github import GitHubClient
 from src.worker.queue import enqueue_issue_job
@@ -54,6 +55,32 @@ async def github_webhook(
             detail="Invalid webhook signature",
         )
 
+    # ── Source header validation ──────────────────────────────────────────────
+    if not x_github_event:
+        log.warning("webhook.missing_event_header", delivery=x_github_delivery)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing X-GitHub-Event header",
+        )
+
+    # ── Delivery deduplication / Replay protection ───────────────────────────
+    if x_github_delivery:
+        try:
+            redis = await queue_module.get_redis_connection()
+            dedup_key = f"webhook:delivery:{x_github_delivery}"
+            res = redis.set(dedup_key, "1", nx=True, ex=3600)
+            is_new = await res if hasattr(res, "__await__") else res
+            if not is_new:
+                log.info("webhook.duplicate_delivery_ignored", delivery=x_github_delivery)
+                return JSONResponse(
+                    {
+                        "status": "ignored",
+                        "reason": "duplicate delivery",
+                    }
+                )
+        except Exception:
+            pass
+
     # ── Parse event ───────────────────────────────────────────────────────────
     try:
         event_data = json.loads(payload)
@@ -63,7 +90,7 @@ async def github_webhook(
             detail="Invalid JSON payload",
         ) from err
 
-    event_type = x_github_event or "unknown"
+    event_type = x_github_event
     action = event_data.get("action", "")
     delivery_id = x_github_delivery or "unknown"
 
@@ -73,24 +100,50 @@ async def github_webhook(
     if event_type not in ("issues", "pull_request_review_comment"):
         return JSONResponse({"status": "ignored", "reason": f"event type '{event_type}'"})
 
+    repo_data = event_data.get("repository")
+    repo_full_name = repo_data.get("full_name") if isinstance(repo_data, dict) else None
+
+    # ── Repository allowlist ──────────────────────────────────────────────────
+    settings = get_settings()
+    allowed_repos = getattr(settings, "allowed_repositories", [])
+    if allowed_repos and repo_full_name and repo_full_name not in allowed_repos:
+        log.warning("webhook.repo_not_allowed", repo=repo_full_name)
+        return JSONResponse({"status": "ignored", "reason": "repository not allowed"})
+
+    # ── Handle Pull Request Review Comment ────────────────────────────────────
     if event_type == "pull_request_review_comment":
         comment = event_data.get("comment", {})
         body = comment.get("body", "")
+        comment_id = comment.get("id", 0)
         pr_data = event_data.get("pull_request", {})
         pr_number = pr_data.get("number", 0)
         log.info("webhook.pr_review_comment", pr=pr_number, delivery=delivery_id)
+
+        job_id = None
+        if repo_full_name and pr_number:
+            try:
+                job_id = await queue_module.enqueue_review_refinement_job(
+                    repo_full_name=repo_full_name,
+                    pr_number=pr_number,
+                    comment_id=comment_id,
+                    review_feedback=body,
+                    delivery_id=delivery_id,
+                )
+            except Exception as e:
+                log.warning("webhook.review_enqueue_failed", error=str(e))
+
+        response_content: dict[str, Any] = {
+            "status": "accepted",
+            "event": "review_comment",
+            "pr_number": pr_number,
+            "feedback": body[:100],
+        }
+        if job_id:
+            response_content["job_id"] = job_id
         return JSONResponse(
-            {
-                "status": "accepted",
-                "event": "review_comment",
-                "pr_number": pr_number,
-                "feedback": body[:100],
-            },
+            response_content,
             status_code=status.HTTP_202_ACCEPTED,
         )
-
-    repo_data = event_data.get("repository")
-    repo_full_name = repo_data.get("full_name") if isinstance(repo_data, dict) else None
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
     if repo_full_name:
@@ -114,23 +167,6 @@ async def github_webhook(
         )
 
     issue_number = issue_data["number"]
-
-    # ── Delivery deduplication ────────────────────────────────────────────────
-    if x_github_delivery:
-        try:
-            redis = await queue_module.get_redis_connection()
-            dedup_key = f"webhook:delivery:{x_github_delivery}"
-            res = redis.set(dedup_key, "1", nx=True, ex=3600)
-            is_new = await res if hasattr(res, "__await__") else res
-            if not is_new:
-                return JSONResponse(
-                    {
-                        "status": "ignored",
-                        "reason": "duplicate delivery",
-                    }
-                )
-        except Exception:
-            pass
 
     if action not in HANDLED_ISSUE_ACTIONS:
         return JSONResponse({"status": "ignored", "reason": f"action '{action}'"})

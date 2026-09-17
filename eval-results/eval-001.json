@@ -1,0 +1,19 @@
+{
+  "eval_id": "eval-001",
+  "repo": "psf/requests",
+  "issue_number": 6123,
+  "model": "claude-3-7-sonnet-20250219",
+  "status": "succeeded",
+  "retries": 1,
+  "duration_seconds": 45.2,
+  "tokens_used": 14200,
+  "cost_usd": 0.085,
+  "tests_passed": true,
+  "date": "2026-04-10",
+  "timestamp": "2026-04-10T11:30:00Z",
+  "commit_sha": "f55111728222e84368f9cc05853ee65c7eb15d32",
+  "issue": 6123,
+  "result": "succeeded",
+  "pr_url": "https://github.com/psf/requests/pull/6124",
+  "logs": "Task eval-001 on psf/requests#6123 completed with result succeeded. Plan created, patches applied, test suite executed in container sandbox. Tokens used: 14200, cost: $0.085."
+}

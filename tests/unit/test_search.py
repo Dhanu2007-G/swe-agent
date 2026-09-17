@@ -73,7 +73,9 @@ def test_tokenize_for_search():
 async def test_find_relevant_files_search(tmp_path: Path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "service.py").write_text(
-        'class BillingEngine:\n    """Handles payments and invoicing."""\n    async def process_bill(self): pass\n'
+        "class BillingEngine:\n"
+        '    """Handles payments and invoicing."""\n'
+        "    async def process_bill(self): pass\n"
     )
     (tmp_path / "src" / "auth.py").write_text(
         'class AuthManager:\n    """Handles tokens."""\n    def login(self): pass\n'
@@ -82,14 +84,22 @@ async def test_find_relevant_files_search(tmp_path: Path):
     (tmp_path / ".venv").mkdir()
     (tmp_path / ".venv" / "ignored.py").write_text("class Ignored: pass")
 
-    with patch("src.tools._repo_cache.get_local_repo_path", new_callable=AsyncMock, return_value=str(tmp_path)):
+    with patch(
+        "src.tools._repo_cache.get_local_repo_path",
+        new_callable=AsyncMock,
+        return_value=str(tmp_path),
+    ):
         # Exact symbol boost match
-        matches = await find_relevant_files("owner/repo", query="BillingEngine invoice payments", exclude=[])
+        matches = await find_relevant_files(
+            "owner/repo", query="BillingEngine invoice payments", exclude=[]
+        )
         assert "src/service.py" in matches
         assert ".venv/ignored.py" not in matches
 
         # Exclude works
-        matches_ex = await find_relevant_files("owner/repo", query="BillingEngine", exclude=["src/service.py"])
+        matches_ex = await find_relevant_files(
+            "owner/repo", query="BillingEngine", exclude=["src/service.py"]
+        )
         assert "src/service.py" not in matches_ex
 
         # Empty corpus
@@ -114,12 +124,18 @@ async def test_find_relevant_files_search(tmp_path: Path):
 async def test_search_symbols(tmp_path: Path):
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg" / "math_utils.py").write_text(
-        "class Matrix:\n    pass\n\ndef calculate_dot_product():\n    '''Compute dot product'''\n    pass\n"
+        "class Matrix:\n    pass\n\n"
+        "def calculate_dot_product():\n"
+        "    '''Compute dot product'''\n    pass\n"
     )
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "hook.py").write_text("def hook(): pass")
 
-    with patch("src.tools._repo_cache.get_local_repo_path", new_callable=AsyncMock, return_value=str(tmp_path)):
+    with patch(
+        "src.tools._repo_cache.get_local_repo_path",
+        new_callable=AsyncMock,
+        return_value=str(tmp_path),
+    ):
         results = await search_symbols("owner/repo", symbol_query="dot_product")
         assert len(results) == 1
         assert results[0]["name"] == "calculate_dot_product"

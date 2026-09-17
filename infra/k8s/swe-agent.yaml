@@ -52,12 +52,12 @@ metadata:
   namespace: swe-agent
 type: Opaque
 stringData:
-  ANTHROPIC_API_KEY: "REPLACE_WITH_REAL_KEY"
-  GITHUB_TOKEN: "REPLACE_WITH_REAL_TOKEN"
-  GITHUB_WEBHOOK_SECRET: "REPLACE_WITH_REAL_SECRET"
-  DATABASE_URL: "postgresql+asyncpg://REPLACE@postgres-service:5432/swe_agent"
-  LANGCHAIN_API_KEY: "REPLACE_WITH_REAL_KEY"
-  APP_SECRET_KEY: "REPLACE_WITH_RANDOM_HEX"
+  ANTHROPIC_API_KEY: "configured-via-external-secrets"
+  GITHUB_TOKEN: "configured-via-external-secrets"
+  GITHUB_WEBHOOK_SECRET: "configured-via-external-secrets"
+  DATABASE_URL: "postgresql+asyncpg://swe_agent:swe_agent_pass@postgres-service:5432/swe_agent"
+  LANGCHAIN_API_KEY: "configured-via-external-secrets"
+  APP_SECRET_KEY: "configured-via-external-secrets"
 
 ---
 # ── API Deployment ────────────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: api
-          image: ghcr.io/your-org/swe-agent/swe-agent:latest
+          image: ghcr.io/swe-agent/swe-agent:latest
           command:
             - uvicorn
             - src.api.main:app
@@ -221,7 +221,7 @@ spec:
           command: ["sh", "-c", "until redis-cli -h redis-service ping; do sleep 2; done"]
       containers:
         - name: worker
-          image: ghcr.io/your-org/swe-agent/swe-agent:latest
+          image: ghcr.io/swe-agent/swe-agent:latest
           command: ["python", "-m", "src.worker.entrypoint"]
           envFrom:
             - configMapRef:
@@ -298,7 +298,7 @@ spec:
     spec:
       containers:
         - name: watchdog
-          image: ghcr.io/your-org/swe-agent/swe-agent:latest
+          image: ghcr.io/swe-agent/swe-agent:latest
           command: ["python", "-m", "src.worker.watchdog"]
           envFrom:
             - configMapRef:
@@ -344,10 +344,10 @@ metadata:
 spec:
   tls:
     - hosts:
-        - swe-agent.yourdomain.com
+        - swe-agent.internal
       secretName: swe-agent-tls
   rules:
-    - host: swe-agent.yourdomain.com
+    - host: swe-agent.internal
       http:
         paths:
           - path: /

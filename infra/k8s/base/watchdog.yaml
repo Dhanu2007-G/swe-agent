@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: swe-agent-watchdog
+  namespace: swe-agent
+  labels:
+    app: swe-agent-watchdog
+    component: watchdog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: swe-agent-watchdog
+  template:
+    metadata:
+      labels:
+        app: swe-agent-watchdog
+        component: watchdog
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      containers:
+        - name: watchdog
+          image: ghcr.io/swe-agent/swe-agent:latest
+          command:
+            - python
+            - -m
+            - src.worker.watchdog
+          envFrom:
+            - configMapRef:
+                name: swe-agent-config
+            - secretRef:
+                name: swe-agent-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi

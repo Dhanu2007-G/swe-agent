@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: swe-agent-config
+  namespace: swe-agent
+data:
+  APP_ENV: "production"
+  LOG_FORMAT: "json"
+  LOG_LEVEL: "INFO"
+  ANTHROPIC_MODEL: "claude-opus-4-6"
+  ANTHROPIC_MAX_TOKENS: "8192"
+  ANTHROPIC_TIMEOUT_SECONDS: "120"
+  WORKER_CONCURRENCY: "3"
+  AGENT_MAX_RETRIES: "3"
+  AGENT_MAX_FILES_IN_CONTEXT: "10"
+  SANDBOX_MEMORY_LIMIT: "512m"
+  SANDBOX_NETWORK_DISABLED: "true"
+  SANDBOX_PROVIDER: "kubernetes"
+  LANGCHAIN_TRACING_V2: "true"
+  LANGCHAIN_PROJECT: "swe-agent"
+  REDIS_URL: "redis://redis-service:6379/0"
