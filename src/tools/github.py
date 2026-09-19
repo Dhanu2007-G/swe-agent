@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import git
 import structlog
-from github import Github, GithubException
+from github import Auth, Github, GithubException
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -68,8 +68,10 @@ class GitHubClient:
         self._gh: Github | None = None
 
     async def __aenter__(self) -> GitHubClient:
+        token = self._settings.github_token_value
+        auth = Auth.Token(token) if token else None
         self._gh = Github(
-            self._settings.github_token_value,
+            auth=auth,
             retry=3,
             per_page=100,
         )

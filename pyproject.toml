@@ -86,6 +86,7 @@ norecursedirs = ["fixtures", "tests/fixtures", ".git"]
 addopts = "--cov=src --cov-report=term-missing --cov-fail-under=95"
 filterwarnings = [
     "ignore::RuntimeWarning",
+    "ignore::DeprecationWarning:github.*",
 ]
 
 [tool.ruff]

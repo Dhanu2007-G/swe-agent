@@ -77,7 +77,11 @@ class TestGitHubClientContext:
             await client.__aexit__(None, None, None)
 
         assert entered is client
-        mock_github.assert_called_once_with("ghp_test_token", retry=3, per_page=100)
+        assert mock_github.call_count == 1
+        _, kwargs = mock_github.call_args
+        assert kwargs["retry"] == 3
+        assert kwargs["per_page"] == 100
+        assert kwargs["auth"].token == "ghp_test_token"
         loop.run_in_executor.assert_awaited_once()
 
 
