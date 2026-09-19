@@ -287,12 +287,12 @@ def _truncate_at_boundary(
         else:
             break
 
-    if accumulated_lines:
+    # If multiple lines were cut at a line boundary, return them
+    if accumulated_lines and len(accumulated_lines) < len(lines):
         return "".join(accumulated_lines), "Hard-truncated to fit token budget"
 
-    # If even a single line doesn't fit, character truncate
-    chars_per_token = max(1, len(content) // max(_count_tokens(content), 1))
-    char_limit = max_tokens * chars_per_token
+    # If single line or all lines were collected without reduction, character truncate
+    char_limit = min(len(content) - 1, max(1, max_tokens * 4))
     return content[:char_limit], "Hard-truncated to fit token budget"
 
 
