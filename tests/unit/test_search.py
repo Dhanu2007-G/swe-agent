@@ -102,9 +102,17 @@ async def test_find_relevant_files_search(tmp_path: Path):
         )
         assert "src/service.py" not in matches_ex
 
+        # Test manifest files and ignored non-polyglot files
+        (tmp_path / "src" / "notes.txt").write_text("random note")
+        (tmp_path / "package.json").write_text('{"name": "test"}')
+        matches_manifest = await find_relevant_files("owner/repo", query="package", exclude=[])
+        assert "package.json" in matches_manifest
+
         # Empty corpus
         empty = await find_relevant_files(
-            "owner/repo", query="test", exclude=["src/service.py", "src/auth.py", "src/empty.py"]
+            "owner/repo",
+            query="test",
+            exclude=["src/service.py", "src/auth.py", "src/empty.py", "package.json"],
         )
         assert empty == []
 
@@ -145,6 +153,11 @@ async def test_search_symbols(tmp_path: Path):
         # Search by docstring
         doc_results = await search_symbols("owner/repo", symbol_query="dot product")
         assert len(doc_results) >= 1
+
+        # Non-polyglot extension skipped
+        (tmp_path / "pkg" / "notes.txt").write_text("plain text note")
+        res_poly = await search_symbols("owner/repo", symbol_query="plain")
+        assert res_poly == []
 
         # File read error handled
         with patch("pathlib.Path.read_text", side_effect=OSError("disk error")):

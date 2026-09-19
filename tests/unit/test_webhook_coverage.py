@@ -178,3 +178,124 @@ class TestWebhookCoverage:
         )
         assert response.status_code == 200
         assert response.json()["reason"] == "run already active"
+
+    @patch("src.tools.github.GitHubClient.validate_webhook_signature", return_value=True)
+    @patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock)
+    def test_webhook_ignored_event_type(self, mock_get_redis, mock_validate, client) -> None:
+        mock_redis = AsyncMock()
+        mock_redis.set.return_value = True
+        mock_get_redis.return_value = mock_redis
+        response = client.post(
+            "/webhooks/github",
+            json={"action": "created"},
+            headers={
+                "X-GitHub-Event": "ping",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "ignored"
+
+    @patch("src.tools.github.GitHubClient.validate_webhook_signature", return_value=True)
+    @patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock)
+    def test_webhook_ignored_action_and_label(self, mock_get_redis, mock_validate, client) -> None:
+        mock_redis = AsyncMock()
+        mock_redis.set.return_value = True
+        mock_get_redis.return_value = mock_redis
+        # Unhandled action
+        res1 = client.post(
+            "/webhooks/github",
+            json={
+                "action": "closed",
+                "issue": {"number": 1},
+                "repository": {"full_name": "owner/repo"},
+            },
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
+        )
+        assert res1.status_code == 200
+        assert "action 'closed'" in res1.json()["reason"]
+
+        # Missing trigger label
+        res2 = client.post(
+            "/webhooks/github",
+            json={
+                "action": "opened",
+                "issue": {"number": 1, "labels": [{"name": "bug"}]},
+                "repository": {"full_name": "owner/repo"},
+            },
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo2",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
+        )
+        assert res2.status_code == 200
+        assert "label 'agent-fix' not present" in res2.json()["reason"]
+
+    @patch("src.tools.github.GitHubClient.validate_webhook_signature", return_value=True)
+    @patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock)
+    @patch(
+        "src.worker.queue.enqueue_review_refinement_job", side_effect=RuntimeError("queue error")
+    )
+    def test_webhook_review_comment_enqueue_failure(
+        self, mock_enqueue, mock_get_redis, mock_validate, client
+    ) -> None:
+        mock_redis = AsyncMock()
+        mock_redis.set.return_value = True
+        mock_get_redis.return_value = mock_redis
+        response = client.post(
+            "/webhooks/github",
+            json={
+                "action": "created",
+                "comment": {"id": 99, "body": "fix typo"},
+                "pull_request": {"number": 42},
+                "repository": {"full_name": "owner/repo"},
+            },
+            headers={
+                "X-GitHub-Event": "pull_request_review_comment",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 202
+        assert response.json()["status"] == "accepted"
+
+    @patch("src.tools.github.GitHubClient.validate_webhook_signature", return_value=True)
+    @patch("src.worker.queue.get_redis_connection", new_callable=AsyncMock)
+    @patch("src.api.webhook.RunRepository")
+    @patch("src.api.webhook.enqueue_issue_job", new_callable=AsyncMock, return_value="job-999")
+    def test_webhook_issue_enqueue_success(
+        self, mock_enqueue, mock_repo_cls, mock_get_redis, mock_validate, client
+    ) -> None:
+        mock_redis = AsyncMock()
+        mock_redis.set.return_value = True
+        mock_get_redis.return_value = mock_redis
+
+        mock_repo = mock_repo_cls.return_value
+        mock_repo.get_active_run = AsyncMock(return_value=None)
+
+        response = client.post(
+            "/webhooks/github",
+            json={
+                "action": "opened",
+                "issue": {"number": 1, "labels": [{"name": "agent-fix"}]},
+                "repository": {"full_name": "owner/repo"},
+            },
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "foo",
+                "X-Hub-Signature-256": "sha256=123",
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 202
+        assert response.json()["job_id"] == "job-999"
