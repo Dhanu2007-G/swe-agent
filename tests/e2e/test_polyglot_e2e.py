@@ -335,9 +335,16 @@ class TestNegativeEdgeCases:
         state: AgentState = {"issue": issue, "retry_count": 0, "attempt_history": []}
 
         mock_llm_response = MagicMock(content=json.dumps({"can_proceed": False}))
-        with patch(
-            "src.agent.nodes._invoke_with_timeout",
-            AsyncMock(return_value=mock_llm_response),
+        with (
+            patch(
+                "src.agent.nodes._invoke_with_timeout",
+                AsyncMock(return_value=mock_llm_response),
+            ),
+            patch(
+                "src.tools._repo_cache.get_local_repo_path",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             updates = await read_issue_node(state)
             assert updates["status"] == RunStatus.FAILED
