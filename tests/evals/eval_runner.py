@@ -11,7 +11,6 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import structlog
 
@@ -117,13 +116,14 @@ async def run_eval(case: EvalCase, dry_run: bool = False) -> EvalResult:
         )
 
     from src.agent.graph import run_agent
+    from src.agent.state import AgentState  # noqa: TC001
     from src.tools.github import GitHubClient
 
     try:
         async with GitHubClient() as github:
             issue = await github.get_issue(case.repo, case.issue_number)
 
-        initial_state: dict[str, Any] = {
+        initial_state: AgentState = {
             "issue": issue,
             "retry_count": 0,
             "attempt_history": [],
@@ -134,7 +134,7 @@ async def run_eval(case: EvalCase, dry_run: bool = False) -> EvalResult:
         duration = time.monotonic() - start
         status = final_state.get("status", "failed")
         pr = final_state.get("pull_request")
-        pr_url = pr.get("pr_url") if pr else None
+        pr_url = getattr(pr, "html_url", None) if pr else None
         retries = final_state.get("retry_count", 0)
         tokens = final_state.get("total_tokens_used", 0)
 
