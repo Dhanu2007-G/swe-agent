@@ -35,10 +35,11 @@ services:
         --workers 2
         --loop uvloop
         --http httptools
-        --log-config /dev/null
         --access-log
     ports:
       - "8000:8000"
+    volumes:
+      - ./demo:/app/demo:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s
@@ -51,7 +52,7 @@ services:
     <<: *app-base
     command: python -m src.worker.entrypoint
     deploy:
-      replicas: 3
+      replicas: 1
     volumes:
       # Workers need Docker socket to spin up sandbox containers
       - /var/run/docker.sock:/var/run/docker.sock

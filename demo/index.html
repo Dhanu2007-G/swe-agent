@@ -259,7 +259,12 @@
               <option value="psf/requests">psf/requests (Python / pytest #6462)</option>
               <option value="pallets/flask">pallets/flask (Python / pytest #5478)</option>
               <option value="encode/httpx">encode/httpx (Python / pytest #2756)</option>
+              <option value="custom">✏️ Custom Repository (Enter any Org / Repo)...</option>
             </select>
+            <div id="customRepoRow" style="display:none;margin-top:8px">
+              <label style="font-size:11px;color:var(--accent);font-weight:600;display:block;margin-bottom:4px">Target Repository (owner/repo):</label>
+              <input type="text" id="customRepoInput" placeholder="e.g. facebook/react or your-org/your-repo" />
+            </div>
           </div>
           <div>
             <label>Issue Number</label>
@@ -986,7 +991,30 @@ const SCENARIOS = {
 };
 
 function updateScenarioFields() {
-  const repo = document.getElementById('repoSelect').value;
+  const repoSelect = document.getElementById('repoSelect');
+  const customRow = document.getElementById('customRepoRow');
+  const repo = repoSelect.value;
+
+  if (repo === 'custom') {
+    if (customRow) customRow.style.display = 'block';
+    const customInput = document.getElementById('customRepoInput');
+    if (customInput) customInput.focus();
+    // Default to Live Backend mode for real custom repositories
+    const modeSelect = document.getElementById('execMode');
+    if (modeSelect) modeSelect.value = 'live';
+    const issueNum = document.getElementById('issueNum');
+    if (issueNum && ['5089', '6462', '5478', '2756'].includes(issueNum.value)) {
+      issueNum.value = '';
+      issueNum.placeholder = 'e.g. 1';
+    }
+    const issueTitle = document.getElementById('issueTitle');
+    if (issueTitle) issueTitle.value = 'Custom Issue Resolution';
+    const issueBody = document.getElementById('issueBody');
+    if (issueBody) issueBody.value = 'Analyze repository, write reproduction test, resolve issue in sandbox, and create Pull Request.';
+    return;
+  }
+
+  if (customRow) customRow.style.display = 'none';
   const sc = SCENARIOS[repo];
   if (sc) {
     document.getElementById('issueNum').value = sc.issue;
@@ -1101,6 +1129,12 @@ async function runLiveMode(repo, issueNum, endpoint) {
         setNode('pr', 'done');
         setProgress(100, '✅ Run completed successfully!');
         termWrite('terminal', `<span class="t-ok">✓ Live run completed!</span> PR URL: <a href="${run.pr_url || '#'}" target="_blank" class="t-accent">${run.pr_url || 'PR generated'}</a>`);
+        if (run.pr_url) {
+          document.getElementById('prResult').style.display = 'block';
+          document.getElementById('prTitle').innerHTML = `🎉 Pull Request Created: <a href="${run.pr_url}" target="_blank" style="color:var(--accent);text-decoration:underline">${run.pr_url}</a>`;
+          document.getElementById('prMeta').innerHTML = `<span class="badge badge-green">✓ Merged patch into branch</span> &nbsp; <span class="badge badge-blue">${run.repo_full_name || repo} #${run.issue_number || issueNum}</span> &nbsp; <span class="badge badge-green">Status: ${run.status}</span>`;
+          document.getElementById('prDiff').innerHTML = `<div style="margin-top:8px;font-size:13px;color:var(--text-dim)">The agent has resolved issue #${run.issue_number || issueNum} in <code>${run.repo_full_name || repo}</code>, verified passing tests in the sandbox, and submitted the pull request above!</div>`;
+        }
         document.getElementById('triggerStatus').innerHTML = '<span class="badge badge-green">● Completed</span>';
         document.getElementById('runBtn').textContent = '⚡ Run Agent Now';
         document.getElementById('runBtn').disabled = false;
@@ -1130,10 +1164,26 @@ async function runLiveMode(repo, issueNum, endpoint) {
 
 async function runDemo() {
   if (demoRunning) return;
-  demoRunning = true;
 
-  const repo = document.getElementById('repoSelect').value;
-  const issueNum = document.getElementById('issueNum').value || '6462';
+  const repoSelect = document.getElementById('repoSelect').value;
+  let repo = repoSelect;
+  if (repoSelect === 'custom') {
+    const customInput = document.getElementById('customRepoInput');
+    repo = (customInput ? customInput.value.trim() : '');
+    if (!repo || !repo.includes('/')) {
+      alert('Please enter a valid GitHub repository in "owner/repo" format (e.g. facebook/react or your-org/your-repo).');
+      return;
+    }
+  }
+
+  const issueNumInput = (document.getElementById('issueNum').value || '').trim();
+  const issueNum = parseInt(issueNumInput, 10);
+  if (!issueNum || isNaN(issueNum)) {
+    alert('Please enter a valid numeric GitHub issue number (e.g. 42).');
+    return;
+  }
+
+  demoRunning = true;
   const sc = SCENARIOS[repo] || SCENARIOS['psf/requests'];
   const mode = document.getElementById('execMode').value;
   const endpoint = document.getElementById('apiEndpoint').value.replace(/\/$/, '');
