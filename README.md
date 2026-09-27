@@ -11,7 +11,43 @@
 [![Docker](https://img.shields.io/badge/Docker-Sandbox-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
 
-[Architecture](#-system-architecture) • [Feature Contract & Status](#-feature-contract--status) • [Polyglot Support](#-polyglot-execution--test-runners) • [Evaluation Records](#-benchmark-evaluations) • [Release Checklist](#-release-checklist) • [Quick Start](#-quick-start)
+[Demo Walkthrough](#-interactive-execution-walkthrough) • [Architecture](#-system-architecture) • [Feature Contract & Status](#-feature-contract--status) • [Polyglot Support](#-polyglot-execution--test-runners) • [Evaluation Records](#-benchmark-evaluations) • [Release Checklist](#-release-checklist) • [Quick Start](#-quick-start)
+
+</div>
+
+---
+
+## 🖥️ Interactive Execution Walkthrough
+
+The platform includes a real-time web dashboard & interactive execution console (`demo/index.html`):
+
+<div align="center">
+
+### 1. Dashboard Overview & Quality Metrics
+*Telemetry counters, system readiness gates (381 tests passing, 100% statement coverage, 0 lint/mypy errors), and polyglot execution engine status.*
+
+<img src="assets/demo/01-dashboard-hero.png" alt="SWE-Agent Dashboard Overview" width="95%" />
+
+<br/><br/>
+
+### 2. LangGraph State Machine & Trigger Form
+*Issue ingestion configuration and LangGraph stateful DAG orchestration (`read_issue` ➔ `plan` ➔ `code` ➔ `test` ➔ `correct` ➔ `open_pr`).*
+
+<img src="assets/demo/02-pipeline-ready.png" alt="SWE-Agent Pipeline Configuration" width="95%" />
+
+<br/><br/>
+
+### 3. Real-Time Sandboxed Execution & Streaming Logs
+*Hermetic Docker execution (`--cap-drop ALL`, read-only rootfs) running polyglot test runners with live dual-console streaming logs (FastAPI Gateway + Worker).*
+
+<img src="assets/demo/03-execution-progress.png" alt="SWE-Agent Sandbox Execution & Streaming Logs" width="95%" />
+
+<br/><br/>
+
+### 4. Automated Self-Correction Loop & Pull Request Creation
+*Automated reproduction failure detection, iterative refinement via Claude, verified 100% passing tests, and automated PR dispatch.*
+
+<img src="assets/demo/04-pr-complete.png" alt="SWE-Agent Self-Correction & PR Creation Complete" width="95%" />
 
 </div>
 
