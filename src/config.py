@@ -122,6 +122,13 @@ class Settings(BaseSettings):
     otel_exporter_otlp_endpoint: str | None = None
     prometheus_port: int = Field(default=9090, ge=1024, le=65535)
 
+    # Multi-provider LLM support (LiteLLM)
+    LLM_MODEL: str = "claude-3-5-sonnet-20241022"  # Override to switch provider
+    OPENAI_API_KEY: str | None = None
+    GEMINI_API_KEY: str | None = None
+    GROQ_API_KEY: str | None = None
+    OPENROUTER_API_KEY: str | None = None
+
     @field_validator("database_url", mode="before")
     @classmethod
     def fix_postgres_scheme(cls, v: str) -> str:
