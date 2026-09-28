@@ -24,6 +24,13 @@ The platform includes a real-time web dashboard & interactive execution console 
 
 <div align="center">
 
+### 🎬 Live Autonomous Execution Demo
+*End-to-end resolution loop: Issue Ingestion ➔ LangGraph Planning ➔ Docker Sandbox Test Run ➔ Self-Correction ➔ Pull Request Created.*
+
+<img src="assets/demo/swe-agent-demo.gif" alt="SWE Agent Autonomous Execution Demo" width="95%" />
+
+<br/><br/>
+
 ### 1. Dashboard Overview & Quality Metrics
 *Telemetry counters, system readiness gates (381 tests passing, 100% statement coverage, 0 lint/mypy errors), and polyglot execution engine status.*
 
