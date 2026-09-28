@@ -4,9 +4,9 @@
 
 **Autonomous AI agent platform that ingests GitHub issues and PR review comments, extracts AST symbol context, generates atomic code patches, executes isolated tests inside sandboxes, self-corrects on failure, and delivers pull requests across polyglot codebases.**
 
-[![CI](https://github.com/your-org/swe-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/swe-agent/actions/workflows/ci.yml)
+[![CI](https://github.com/Dhanu2007-G/swe-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Dhanu2007-G/swe-agent/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![Coverage](https://img.shields.io/badge/Coverage-98.9%25-brightgreen?style=flat-square&logo=pytest&logoColor=white)](https://github.com/your-org/swe-agent/actions)
+[![Coverage](https://img.shields.io/badge/Coverage-98.9%25-brightgreen?style=flat-square&logo=pytest&logoColor=white)](https://github.com/Dhanu2007-G/swe-agent/actions)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Sandbox-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
