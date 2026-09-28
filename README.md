@@ -9,6 +9,7 @@
 [![Coverage](https://img.shields.io/badge/Coverage-98.9%25-brightgreen?style=flat-square&logo=pytest&logoColor=white)](https://github.com/Dhanu2007-G/swe-agent/actions)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Sandbox-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
+[![LiteLLM](https://img.shields.io/badge/LiteLLM-Multi--Provider-6366f1?style=flat-square&logo=openai&logoColor=white)](https://github.com/BerriAI/litellm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
 
 [Demo Walkthrough](#-interactive-execution-walkthrough) • [Architecture](#-system-architecture) • [Feature Contract & Status](#-feature-contract--status) • [Polyglot Support](#-polyglot-execution--test-runners) • [Evaluation Records](#-benchmark-evaluations) • [Release Checklist](#-release-checklist) • [Quick Start](#-quick-start)
@@ -66,6 +67,7 @@ The platform includes a real-time web dashboard & interactive execution console 
 | **Cloud / Kubernetes Sandbox** | Kubernetes Pod provider with Pod Security Standards (runAsNonRoot, readOnlyRootFilesystem) | **Beta** |
 | **Observability & Operations** | Prometheus metrics (runs, latency, retries, active runs, queue depth), Grafana dashboards, alert rules | **Stable** |
 | **Deployment Orchestration** | Hardened Docker Compose (no exposed DB ports) and Kustomize Kubernetes manifests | **Beta** |
+| **Multi-Provider LLM Engine** | LiteLLM-powered provider routing: Anthropic Claude, OpenAI GPT-4o, Google Gemini, Groq, OpenRouter, local Ollama — switchable via single `.env` variable | **Stable** |
 
 ---
 
@@ -170,7 +172,35 @@ Before tagging or deploying any release, verify all criteria:
 ### 1. Configure Environment
 ```bash
 cp .env.template .env
-# Edit .env with your ANTHROPIC_API_KEY and GITHUB_TOKEN
+```
+
+Edit `.env` and set your provider. Only the key for your chosen provider is required:
+
+```bash
+# ── Choose ONE provider ────────────────────────────────────────────
+
+# Option A: Anthropic Claude (best code quality)
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...          # console.anthropic.com
+
+# Option B: Google Gemini (FREE — no credit card)
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=AIzaSy...              # aistudio.google.com → Get API key
+
+# Option C: OpenAI GPT-4o
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-proj-...            # platform.openai.com
+
+# Option D: Groq — ultra fast, FREE tier
+LLM_PROVIDER=groq
+GROQ_API_KEY=gsk_...                  # console.groq.com
+
+# Option E: Local Ollama (offline, no key needed)
+LLM_PROVIDER=ollama
+# Run: ollama pull deepseek-coder:6.7b
+
+# ── Always required ────────────────────────────────────────────────
+GITHUB_TOKEN=ghp_...                  # github.com/settings/tokens (repo scope)
 ```
 
 ### 2. Launch Local Stack
