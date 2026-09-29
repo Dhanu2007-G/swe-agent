@@ -73,7 +73,12 @@ def test_get_llm_response_falls_back_to_anthropic_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When LLM_MODEL is not set, falls back to ANTHROPIC_MODEL."""
-    settings = Settings(ANTHROPIC_API_KEY="test-key", ANTHROPIC_MODEL="claude-3-haiku-20240307")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    settings = Settings(
+        ANTHROPIC_API_KEY="test-key",
+        ANTHROPIC_MODEL="claude-3-haiku-20240307",
+        LLM_MODEL="",
+    )
     with patch(
         "src.agent.llm_client.completion", return_value=_make_mock_response("ok")
     ) as mock_comp:

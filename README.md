@@ -143,6 +143,12 @@ Benchmark evaluations are verified against committed JSON logs in [`eval-results
 
 Full individual run records and traces: [eval-results/SUMMARY.md](eval-results/SUMMARY.md).
 
+### 🔗 Live Verified Pull Request
+Verified live end-to-end autonomous resolution dispatched to GitHub:
+- **Target Repository:** [`Dhanu2007-G/swe-agent`](https://github.com/Dhanu2007-G/swe-agent)
+- **Resolved Issue:** [Issue #1: Add docstring clarification for public health route](https://github.com/Dhanu2007-G/swe-agent/issues/1)
+- **Live Pull Request:** [**PR #2: docs: clarify public health check route authentication in API**](https://github.com/Dhanu2007-G/swe-agent/pull/2) *(Status: Open, passing)*
+
 ---
 
 ## 🔐 Security & Hardening Controls

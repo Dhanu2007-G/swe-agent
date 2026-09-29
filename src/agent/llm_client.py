@@ -61,7 +61,11 @@ def get_llm_response(
         if value:
             os.environ[key] = value
 
-    model = getattr(settings, "LLM_MODEL", settings.anthropic_model)
+    model = (
+        getattr(settings, "LLM_MODEL", None)
+        or getattr(settings, "llm_model", None)
+        or settings.anthropic_model
+    )
 
     response = completion(
         model=model,

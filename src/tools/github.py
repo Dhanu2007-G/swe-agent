@@ -43,16 +43,14 @@ class GitHubNotFoundError(Exception):
 
 def _build_authenticated_clone_kwargs(repo_full_name: str, settings: Any = None) -> dict[str, Any]:
     """Helper to build clone kwargs with authentication."""
-    import base64
-
     s = settings or get_settings()
     token = getattr(s, "github_token_value", getattr(s, "github_token", ""))
-    auth_bytes = f"x-access-token:{token}".encode()
-    auth_b64 = base64.b64encode(auth_bytes).decode()
-    url = f"https://github.com/{repo_full_name}.git"
+    if token:
+        url = f"https://x-access-token:{token}@github.com/{repo_full_name}.git"
+    else:
+        url = f"https://github.com/{repo_full_name}.git"
     return {
         "url": url,
-        "multi_options": ["-c", f"http.extraheader=AUTHORIZATION: basic {auth_b64}"],
     }
 
 
@@ -204,7 +202,6 @@ class GitHubClient:
         settings = self._settings
 
         def _create() -> PullRequest:
-            import base64
             import tempfile
             from pathlib import Path
 
@@ -327,17 +324,14 @@ class GitHubClient:
 
                 origin = repo.remote("origin")
                 if is_fork and fork_repo_name:
-                    fork_url = f"https://github.com/{fork_repo_name}.git"
+                    token = settings.github_token_value
+                    fork_url = (
+                        f"https://x-access-token:{token}@github.com/{fork_repo_name}.git"
+                        if token
+                        else f"https://github.com/{fork_repo_name}.git"
+                    )
                     repo.create_remote("fork", fork_url)
                     fork_remote = repo.remote("fork")
-                    token = settings.github_token_value
-                    auth_bytes = f"x-access-token:{token}".encode()
-                    auth_b64 = base64.b64encode(auth_bytes).decode()
-                    with suppress(Exception):
-                        repo.git.config(
-                            f"http.https://github.com/{fork_repo_name}.git.extraHeader",
-                            f"AUTHORIZATION: basic {auth_b64}",
-                        )
                     fork_remote.push(refspec=f"{actual_branch}:{actual_branch}", force=False)
                 else:
                     origin.push(refspec=f"{actual_branch}:{actual_branch}", force=False)

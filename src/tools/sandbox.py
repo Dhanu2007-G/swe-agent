@@ -92,11 +92,10 @@ def _create_docker_container_sync(
     - Non-root user is defined in the sandbox Dockerfile (USER sandboxuser).
     - Workspace is a fresh per-run tempdir on the host, isolated per run_id.
     """
-    return client.containers.create(
+    container = client.containers.create(
         image=settings.sandbox_image,
         command="sleep infinity",
         detach=True,
-        remove=False,
         volumes={
             # Per-run ephemeral workspace: the ONLY host path mounted.
             # rw is required so the agent can apply patches and write test output.
@@ -131,6 +130,8 @@ def _create_docker_container_sync(
             "swe-agent.repo": repo_full_name,
         },
     )
+    container.start()
+    return container
 
 
 class DockerSandboxProvider(SandboxProvider):
@@ -564,6 +565,16 @@ class SandboxRunner:
             # Write patch to a temp file inside container
             patch_content: str = getattr(patch, "unified_diff", "")
             file_path: str = getattr(patch, "file_path", "")
+            full_content: str | None = getattr(patch, "full_content", None)
+
+            if full_content and not patch_content.strip():
+                target_file = f"{self._settings.sandbox_workspace_dir}/{file_path}"
+                write_cmd = f"cat > {target_file}"
+                exit_code, _ = await self._exec_in_container(write_cmd, stdin=full_content.encode())
+                if exit_code == 0:
+                    files_modified.append(file_path)
+                    log.info("sandbox.full_content_applied", file=file_path, run_id=self.run_id)
+                    continue
 
             if not patch_content.strip():
                 log.warning("sandbox.empty_patch", file=file_path, run_id=self.run_id)

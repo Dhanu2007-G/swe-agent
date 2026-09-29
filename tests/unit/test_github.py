@@ -519,9 +519,9 @@ class TestRetryAndPatchHelpers:
         with patch("src.tools.github.get_settings", return_value=make_settings()):
             clone_kwargs = _build_authenticated_clone_kwargs("owner/repo")
 
-        assert clone_kwargs["url"] == "https://github.com/owner/repo.git"
-        assert clone_kwargs["multi_options"][0] == "-c"
-        assert "AUTHORIZATION: basic " in clone_kwargs["multi_options"][1]
+        assert (
+            clone_kwargs["url"] == "https://x-access-token:ghp_test_token@github.com/owner/repo.git"
+        )
 
     @pytest.mark.asyncio
     async def test_create_pull_request_handles_create_label_exception(self) -> None:
