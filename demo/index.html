@@ -256,10 +256,11 @@
             <label>GitHub Repository</label>
             <select id="repoSelect" onchange="updateScenarioFields()">
               <option value="Dhanu2007-G/swe-agent" selected>Dhanu2007-G/swe-agent (Python / pytest #1 — Real Verified PR #2)</option>
-              <option value="google/googletest">google/googletest (C++ / CMake #5089)</option>
-              <option value="psf/requests">psf/requests (Python / pytest #6462)</option>
+              <option value="pallets/werkzeug">pallets/werkzeug (Python / pytest #3303)</option>
               <option value="pallets/flask">pallets/flask (Python / pytest #5478)</option>
               <option value="encode/httpx">encode/httpx (Python / pytest #2756)</option>
+              <option value="psf/requests">psf/requests (Python / pytest #6462)</option>
+              <option value="google/googletest">google/googletest (C++ / CMake #5089)</option>
               <option value="custom">✏️ Custom Repository (Enter any Org / Repo)...</option>
             </select>
             <div id="customRepoRow" style="display:none;margin-top:8px">
@@ -950,6 +951,83 @@ const SCENARIOS = {
     pr: 'docs: clarify public health check route authentication in API (fixes #1)',
     prNumber: 2,
     prUrl: 'https://github.com/Dhanu2007-G/swe-agent/pull/2',
+    isRealLivePr: true,
+  },
+  'pallets/werkzeug': {
+    issue: 3303,
+    title: 'Deprecate legacy WSGI functions in werkzeug.wsgi',
+    desc: 'Deprecate and safely validate legacy WSGI callable helpers in werkzeug/wsgi.py.',
+    file: 'src/werkzeug/wsgi.py',
+    lang: 'Python',
+    manifest: 'pyproject.toml',
+    runner: 'pytest tests/test_wsgi.py -q',
+    plan: [
+      'Locate legacy WSGI functions in src/werkzeug/wsgi.py',
+      'Add deprecation warnings and validation for callable specs',
+      'Execute pytest in sandbox and verify all tests pass',
+      'Create Pull Request against pallets/werkzeug'
+    ],
+    patchLines: [
+      '@@ -140,8 +140,11 @@ def wsgi_handler(environ, start_response):',
+      '-    # Unhandled legacy parameter',
+      '+    # Maintain compatibility with deprecated WSGI callable spec',
+      '+    if hasattr(environ, "get") and environ.get("wsgi.input"):',
+      '+        return safe_wsgi_response(environ, start_response)',
+      '     return default_response()'
+    ],
+    tests: ['PASSED tests/test_wsgi.py::test_wsgi_deprecation', '100% tests passed, 0 failures'],
+    pr: 'Deprecate legacy WSGI functions in werkzeug.wsgi (fixes #3303)',
+    prNumber: 3304,
+    prUrl: 'https://github.com/pallets/werkzeug/pull/3304',
+    isRealLivePr: false,
+  },
+  'pallets/flask': {
+    issue: 5478,
+    title: 'Missing return type annotation on route decorators',
+    desc: 'Route decorators in flask/app.py lack explicit RouteCallable return types',
+    file: 'src/flask/app.py',
+    lang: 'Python',
+    manifest: 'pyproject.toml',
+    runner: 'pytest tests/ -q',
+    plan: ['Identify route decorator signatures', 'Add -> RouteCallable return type', 'Update typing imports', 'Verify mypy passes'],
+    patchLines: ['-    def route(self, rule: str, **options: Any):', '+    def route(self, rule: str, **options: Any) -> RouteCallable:'],
+    tests: ['PASSED test_route_decorator_type', 'PASSED test_mypy_annotations'],
+    pr: 'typing: Add return annotations to route decorators (fixes #5478)',
+    prNumber: 5479,
+    prUrl: 'https://github.com/pallets/flask/pull/5479',
+    isRealLivePr: false,
+  },
+  'encode/httpx': {
+    issue: 2756,
+    title: 'timeout parameter accepts invalid values',
+    desc: 'Timeout values must be validated non-negative upon client instantiation',
+    file: 'httpx/_config.py',
+    lang: 'Python',
+    manifest: 'pyproject.toml',
+    runner: 'pytest tests/ -q',
+    plan: ['Find Timeout class constructor', 'Add ValueError for negative values', 'Write test cases', 'Update docs'],
+    patchLines: ['+        if any(v is not None and v < 0 for v in [connect, read, write, pool]):', '+            raise ValueError("Timeout values must be non-negative")'],
+    tests: ['PASSED test_timeout_negative_raises', 'PASSED test_timeout_zero_allowed', 'PASSED test_timeout_none_allowed'],
+    pr: 'Add validation for negative timeout values (fixes #2756)',
+    prNumber: 2757,
+    prUrl: 'https://github.com/encode/httpx/pull/2757',
+    isRealLivePr: false,
+  },
+  'psf/requests': {
+    issue: 6462,
+    title: 'ConnectionError in retry logic not caught',
+    desc: 'Handle ConnectionError in retry loop in requests/adapters.py',
+    file: 'requests/adapters.py',
+    lang: 'Python',
+    manifest: 'pyproject.toml',
+    runner: 'pytest tests/ -x -q',
+    plan: ['Locate retry loop in HTTPAdapter.send()', 'Add ConnectionError to except chain', 'Ensure retry counter increments correctly', 'Add test for retry-on-connection-error'],
+    patchLines: ['+        except ConnectionError as e:', '+            if retries.is_retry("GET"):', '+                retries = retries.increment("GET", url, error=e)', '+                continue', '+            raise ConnectionError(e, request=request)'],
+    tests: ['PASSED test_connection_error_retries', 'PASSED test_max_retries_exceeded', 'PASSED test_retry_counter_increments'],
+    pr: 'Fix: Handle ConnectionError in retry loop (fixes #6462)',
+    prNumber: 6463,
+    prUrl: 'https://github.com/psf/requests/pull/6463',
+    isRealLivePr: false,
   },
   'google/googletest': {
     issue: 5089,
@@ -973,45 +1051,9 @@ const SCENARIOS = {
     ],
     tests: ['PASSED 1/2 Test #1: gtest_unittest ... 0.38 sec', 'PASSED 2/2 Test #2: gtest_prod_test ... 0.14 sec', '100% tests passed, 0 tests failed out of 2'],
     pr: 'Fix: Disambiguate PrintTo range overload in C++20 (fixes #5089)',
-  },
-  'psf/requests': {
-    issue: 6462,
-    title: 'ConnectionError in retry logic not caught',
-    desc: 'Handle ConnectionError in retry loop in requests/adapters.py',
-    file: 'requests/adapters.py',
-    lang: 'Python',
-    manifest: 'pyproject.toml',
-    runner: 'pytest tests/ -x -q',
-    plan: ['Locate retry loop in HTTPAdapter.send()', 'Add ConnectionError to except chain', 'Ensure retry counter increments correctly', 'Add test for retry-on-connection-error'],
-    patchLines: ['+        except ConnectionError as e:', '+            if retries.is_retry("GET"):', '+                retries = retries.increment("GET", url, error=e)', '+                continue', '+            raise ConnectionError(e, request=request)'],
-    tests: ['PASSED test_connection_error_retries', 'PASSED test_max_retries_exceeded', 'PASSED test_retry_counter_increments'],
-    pr: 'Fix: Handle ConnectionError in retry loop (fixes #6462)',
-  },
-  'pallets/flask': {
-    issue: 5478,
-    title: 'Missing return type annotation on route decorators',
-    desc: 'Route decorators in flask/app.py lack explicit RouteCallable return types',
-    file: 'src/flask/app.py',
-    lang: 'Python',
-    manifest: 'pyproject.toml',
-    runner: 'pytest tests/ -q',
-    plan: ['Identify route decorator signatures', 'Add -> RouteCallable return type', 'Update typing imports', 'Verify mypy passes'],
-    patchLines: ['-    def route(self, rule: str, **options: Any):', '+    def route(self, rule: str, **options: Any) -> RouteCallable:'],
-    tests: ['PASSED test_route_decorator_type', 'PASSED test_mypy_annotations'],
-    pr: 'typing: Add return annotations to route decorators (fixes #5478)',
-  },
-  'encode/httpx': {
-    issue: 2756,
-    title: 'timeout parameter accepts invalid values',
-    desc: 'Timeout values must be validated non-negative upon client instantiation',
-    file: 'httpx/_config.py',
-    lang: 'Python',
-    manifest: 'pyproject.toml',
-    runner: 'pytest tests/ -q',
-    plan: ['Find Timeout class constructor', 'Add ValueError for negative values', 'Write test cases', 'Update docs'],
-    patchLines: ['+        if any(v is not None and v < 0 for v in [connect, read, write, pool]):', '+            raise ValueError("Timeout values must be non-negative")'],
-    tests: ['PASSED test_timeout_negative_raises', 'PASSED test_timeout_zero_allowed', 'PASSED test_timeout_none_allowed'],
-    pr: 'Add validation for negative timeout values (fixes #2756)',
+    prNumber: 5090,
+    prUrl: 'https://github.com/google/googletest/pull/5090',
+    isRealLivePr: false,
   },
 };
 
@@ -1378,7 +1420,7 @@ async function runDemo() {
   // STEP 6: open_pr
   setNode('pr', 'active');
   setProgress(93, 'Node: open_pr — creating GitHub Pull Request…');
-  const prNum = sc.prNumber || 2;
+  const prNum = sc.prNumber || (issueNum ? (issueNum + 1) : 42);
   const prUrl = sc.prUrl || `https://github.com/${repo}/pull/${prNum}`;
   await typeLines('httpLog', [
     ``,
@@ -1403,13 +1445,16 @@ async function runDemo() {
 
   // SHOW PR CARD
   document.getElementById('prResult').style.display = 'block';
-  document.getElementById('prTitle').innerHTML = `🚀 ${sc.pr} &nbsp;<a href="${prUrl}" target="_blank" style="color:var(--accent);font-size:13px;text-decoration:none;border-bottom:1px dashed var(--accent)">View Real PR on GitHub ↗</a>`;
+  const prLinkHtml = sc.isRealLivePr
+    ? ` &nbsp;<a href="${prUrl}" target="_blank" style="color:var(--accent);font-size:13px;text-decoration:none;border-bottom:1px dashed var(--accent)">View Verified PR #${prNum} on GitHub ↗</a>`
+    : ` &nbsp;<a href="${prUrl}" target="_blank" style="color:var(--accent);font-size:13px;text-decoration:none">View PR #${prNum} ↗</a>`;
+  document.getElementById('prTitle').innerHTML = `🚀 ${sc.pr}${prLinkHtml}`;
   document.getElementById('prMeta').innerHTML = `
     <span>📁 ${sc.file}</span>
     <span>🔀 <a href="${prUrl}" target="_blank" style="color:var(--primary);text-decoration:none">PR #${prNum} ↗</a></span>
     <span>⏱️ ~1m 12s</span>
     <span>🔄 0 corrections</span>
-    <span class="badge badge-green">● Open on GitHub</span>
+    <span class="badge badge-green">● ${sc.isRealLivePr ? 'Verified on GitHub' : 'PR #' + prNum}</span>
   `;
   document.getElementById('prDiff').innerHTML = sc.patchLines.map(l =>
     `<span style="color:${l.startsWith('+') ? '#2ecc71' : l.startsWith('-') ? '#ff4757' : '#4a5568'}">${l}</span>`
