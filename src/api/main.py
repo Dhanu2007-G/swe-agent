@@ -189,6 +189,7 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["health"])
     @app.get("/health/live", tags=["health"])
     async def health() -> dict[str, str]:
+        """Public liveness probe — does not require API key authentication."""
         return {"status": "ok", "version": "1.0.0"}
 
     @app.get("/health/ready", tags=["health"])
