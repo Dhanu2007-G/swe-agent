@@ -523,6 +523,17 @@ class TestRetryAndPatchHelpers:
             clone_kwargs["url"] == "https://x-access-token:ghp_test_token@github.com/owner/repo.git"
         )
 
+    def test_build_authenticated_clone_kwargs_without_token(self) -> None:
+        from src.tools.github import _build_authenticated_clone_kwargs
+
+        s = make_settings()
+        s.github_token_value = None
+        s.github_token = None
+        with patch("src.tools.github.get_settings", return_value=s):
+            clone_kwargs = _build_authenticated_clone_kwargs("owner/repo")
+
+        assert clone_kwargs["url"] == "https://github.com/owner/repo.git"
+
     @pytest.mark.asyncio
     async def test_create_pull_request_handles_create_label_exception(self) -> None:
         from src.tools.github import GitHubClient

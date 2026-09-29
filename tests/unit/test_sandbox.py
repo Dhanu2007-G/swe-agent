@@ -495,3 +495,28 @@ class TestSandboxRunnerHelpers:
         runner._exec_in_container.reset_mock()
         await runner.prepare_ecosystem_dependencies("unknown-lang")
         runner._exec_in_container.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_apply_patches_full_content_fallback(self) -> None:
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from src.agent.state import FilePatch
+        from src.tools.sandbox import SandboxRunner
+
+        runner = SandboxRunner("owner/repo", "run-full")
+        runner._container = MagicMock()
+        runner._workspace_path = Path("/tmp/dummy")
+        runner._settings = SimpleNamespace(sandbox_workspace_dir="/workspace")
+        runner._exec_in_container = AsyncMock(return_value=(0, b""))
+
+        patch = FilePatch(
+            file_path="src/new.py",
+            change_type="create",
+            unified_diff="",
+            full_content="print('hello')",
+        )
+        res = await runner.apply_patches([patch])
+        assert res.success is True
+        assert res.files_modified == ["src/new.py"]
