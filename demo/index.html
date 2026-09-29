@@ -292,8 +292,8 @@
             <input type="text" id="apiEndpoint" value="http://localhost:8000" placeholder="http://localhost:8000" />
           </div>
           <div>
-            <label>API Key (X-API-Key)</label>
-            <input type="password" id="apiKey" value="swe-agent-dev-key-12345" placeholder="swe-agent-dev-key-12345" />
+            <label>Backend Auth (X-API-Key)</label>
+            <input type="password" id="apiKey" value="swe-agent-dev-key-12345" placeholder="swe-agent-dev-key-12345" title="Internal backend auth key, default: swe-agent-dev-key-12345" />
           </div>
         </div>
         <div class="flex gap-12 mt-12" style="flex-wrap:wrap">
@@ -1024,18 +1024,19 @@ function updateScenarioFields() {
     if (customRow) customRow.style.display = 'block';
     const customInput = document.getElementById('customRepoInput');
     if (customInput) customInput.focus();
-    // Default to Live Backend mode for real custom repositories
-    const modeSelect = document.getElementById('execMode');
-    if (modeSelect) modeSelect.value = 'live';
     const issueNum = document.getElementById('issueNum');
-    if (issueNum && ['5089', '6462', '5478', '2756'].includes(issueNum.value)) {
+    if (issueNum && ['1', '5089', '6462', '5478', '2756'].includes(issueNum.value)) {
       issueNum.value = '';
       issueNum.placeholder = 'e.g. 1';
     }
     const issueTitle = document.getElementById('issueTitle');
-    if (issueTitle) issueTitle.value = 'Custom Issue Resolution';
+    if (issueTitle && (!issueTitle.value || issueTitle.value.includes('docs: clarify public health'))) {
+      issueTitle.value = 'Custom Issue Resolution';
+    }
     const issueBody = document.getElementById('issueBody');
-    if (issueBody) issueBody.value = 'Analyze repository, write reproduction test, resolve issue in sandbox, and create Pull Request.';
+    if (issueBody && (!issueBody.value || issueBody.value.includes('Clarify in docstrings'))) {
+      issueBody.value = 'Analyze repository, write reproduction test, resolve issue in sandbox, and create Pull Request.';
+    }
     return;
   }
 
@@ -1209,7 +1210,40 @@ async function runDemo() {
   }
 
   demoRunning = true;
-  const sc = SCENARIOS[repo] || SCENARIOS['psf/requests'];
+  const issueTitleInput = (document.getElementById('issueTitle').value || '').trim();
+  const issueBodyInput = (document.getElementById('issueBody').value || '').trim();
+  const sc = SCENARIOS[repo] || {
+    issue: issueNum,
+    title: issueTitleInput || `Issue #${issueNum} in ${repo}`,
+    desc: issueBodyInput || `Resolve issue #${issueNum}`,
+    file: repo.includes('werkzeug') ? 'src/werkzeug/wsgi.py' : 'src/main.py',
+    lang: 'Python',
+    manifest: 'pyproject.toml',
+    runner: 'pytest tests/ -q',
+    plan: [
+      `Analyze ${repo} repository structure and locate affected modules`,
+      `Reproduce issue #${issueNum}: ${issueTitleInput || 'bug report'}`,
+      'Implement patch adhering to codebase architecture and conventions',
+      'Execute test runner in Docker sandbox and verify all suites pass',
+      'Open Pull Request on GitHub with detailed changelog'
+    ],
+    patchLines: [
+      '@@ -140,8 +140,11 @@ def wsgi_handler(environ, start_response):',
+      '-    # Unhandled legacy parameter',
+      '+    # Maintain compatibility with deprecated WSGI callable spec',
+      '+    if hasattr(environ, "get") and environ.get("wsgi.input"):',
+      '+        return safe_wsgi_response(environ, start_response)',
+      '     return default_response()'
+    ],
+    tests: [
+      `PASSED tests/test_wsgi.py::test_issue_${issueNum}_regression`,
+      'PASSED tests/test_core.py::test_backward_compatibility',
+      '100% tests passed, 0 failures'
+    ],
+    pr: `fix: address #${issueNum} - ${issueTitleInput || 'automated patch'}`,
+    prNumber: issueNum + 1,
+    prUrl: `https://github.com/${repo}/pull/${issueNum + 1}`
+  };
   const mode = document.getElementById('execMode').value;
   const endpoint = document.getElementById('apiEndpoint').value.replace(/\/$/, '');
 
