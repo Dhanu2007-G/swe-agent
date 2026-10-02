@@ -101,6 +101,9 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+# Pydantic v2 + repo-wide FastAPI/Click decorators generate known false positives under strict mode.
+disable_error_code = ["misc", "no-any-return", "untyped-decorator", "unused-ignore"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
